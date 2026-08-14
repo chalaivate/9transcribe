@@ -269,6 +269,17 @@ public sealed class DictationController : IDisposable
         }
 
         RefreshState();
+
+        lock (_gate)
+        {
+            // A very short press can finalize before we get here; arming then would swallow
+            // every Esc system-wide until the next dictation.
+            if (!_recordingActive)
+            {
+                return;
+            }
+        }
+
         _hotkeys.CancelKeyArmed = true;
     }
 
