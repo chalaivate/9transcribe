@@ -1,8 +1,18 @@
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
+using Microsoft.Win32;
+using NineTranscribe.Api;
+using NineTranscribe.Audio;
+using NineTranscribe.Core;
 using NineTranscribe.Diagnostics;
+using NineTranscribe.History;
+using NineTranscribe.Hotkeys;
+using NineTranscribe.Injection;
+using NineTranscribe.Overlay;
 using NineTranscribe.Settings;
+using NineTranscribe.Tray;
+using NineTranscribe.UI;
 
 namespace NineTranscribe;
 
@@ -10,16 +20,25 @@ public partial class App : Application
 {
     private const string MutexName = @"Local\9Transcribe.SingleInstance";
     private const string ShowSettingsEventName = @"Local\9Transcribe.ShowSettings";
+    private const int ApiTabIndex = 1;
 
     private Mutex? _instanceMutex;
     private EventWaitHandle? _showSettingsSignal;
     private CancellationTokenSource? _signalListener;
     private DateTime _lastUnhandledException = DateTime.MinValue;
 
-    internal SettingsStore SettingsStore { get; private set; } = new();
-
-    /// <summary>Raised when another instance was launched and asked this one to show itself.</summary>
-    internal event EventHandler? ShowSettingsRequested;
+    private SettingsStore _store = new();
+    private AudioRecorder? _recorder;
+    private KeyboardHookService? _hook;
+    private HotkeyManager? _hotkeys;
+    private TextInjector? _injector;
+    private OpenAiTranscriptionClient? _api;
+    private OverlayWindow? _overlayWindow;
+    private TranscriptionHistory? _history;
+    private DictationController? _controller;
+    private TrayService? _tray;
+    private SettingsWindow? _settingsWindow;
+    private SettingsViewModel? _settingsViewModel;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -35,35 +54,170 @@ public partial class App : Application
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
 
-        SettingsStore = new SettingsStore();
-        SettingsStore.Load();
+        bool startedByWindows = e.Args.Contains("--tray", StringComparer.OrdinalIgnoreCase);
 
-        Log.Info($"9Transcribe started (settings: {SettingsStore.FilePath})");
+        _store = new SettingsStore();
+        AppSettings settings = _store.Load();
+        ThemeManager.Apply(settings.Theme);
+        SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+
+        if (settings.StartWithWindows)
+        {
+            StartupRegistrar.RefreshPathIfEnabled();
+        }
+
+        BuildServices(settings);
         StartSignalListener();
+
+        Log.Info($"9Transcribe started (settings: {_store.FilePath})");
+
+        if (_store.LoadWarning is { } warning)
+        {
+            _controller?.ShowStartupNotice(warning);
+        }
+
+        // Nothing works without a key, so the first run opens straight onto the API tab.
+        if (string.IsNullOrEmpty(settings.ApiKeyProtected) && !startedByWindows)
+        {
+            ShowSettings(ApiTabIndex);
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+
         _signalListener?.Cancel();
         _signalListener?.Dispose();
         _showSettingsSignal?.Dispose();
 
-        if (_instanceMutex is not null)
-        {
-            try
-            {
-                _instanceMutex.ReleaseMutex();
-            }
-            catch (ApplicationException)
-            {
-                // Not the owning thread; the handle close below still frees it.
-            }
+        _settingsViewModel?.Dispose();
+        _controller?.Dispose();
+        _tray?.Dispose();
+        _injector?.Dispose();
+        _hotkeys?.Dispose();
+        _hook?.Dispose();
+        _recorder?.Dispose();
 
-            _instanceMutex.Dispose();
-        }
+        ReleaseMutex();
 
         Log.Info("9Transcribe exited");
         base.OnExit(e);
+    }
+
+    private void BuildServices(AppSettings settings)
+    {
+        _recorder = new AudioRecorder();
+        _hook = new KeyboardHookService();
+        _hotkeys = new HotkeyManager(_hook);
+        _injector = new TextInjector(() => _store.Current);
+        _api = new OpenAiTranscriptionClient(() => ApiKeyProtector.Unprotect(_store.Current.ApiKeyProtected));
+
+        _history = new TranscriptionHistory();
+        _history.IsEnabled = settings.HistoryEnabled;
+        _history.MaxItems = settings.HistoryMaxItems;
+        _history.PersistToDisk = settings.SaveHistoryToDisk;
+        _history.Load();
+
+        var overlayViewModel = new OverlayViewModel();
+        _overlayWindow = new OverlayWindow(overlayViewModel) { Anchor = settings.OverlayPosition };
+        // Shown once at startup and kept alive: the window is invisible until a state change,
+        // and creating it up front avoids first-show jank in the middle of a dictation.
+        _overlayWindow.Show();
+
+        _controller = new DictationController(
+            _store,
+            _recorder,
+            _hotkeys,
+            _api,
+            _injector,
+            overlayViewModel,
+            _overlayWindow,
+            _history,
+            Dispatcher);
+        _controller.Start();
+
+        _tray = new TrayService(_history);
+        _tray.SettingsRequested += (_, _) => ShowSettings(0);
+        _tray.ExitRequested += (_, _) => Shutdown();
+        _tray.EnabledChanged += OnTrayEnabledChanged;
+        _tray.HistoryEntryChosen += OnHistoryEntryChosen;
+        _controller.StateChanged += (_, state) => Dispatcher.BeginInvoke(() => _tray?.SetState(state));
+
+        _hotkeys.IsEnabled = true;
+        _hotkeys.Start();
+        UpdateTrayTooltip(settings);
+    }
+
+    private void ShowSettings(int tabIndex)
+    {
+        if (_settingsWindow is null)
+        {
+            _settingsViewModel = new SettingsViewModel(_store, _recorder!, _hotkeys!, _api!, _controller!);
+            _settingsViewModel.ThemeChanged += (_, theme) =>
+            {
+                ThemeManager.Apply(theme);
+                _settingsWindow?.ApplyTitleBarTheme();
+            };
+            _settingsViewModel.SettingsApplied += OnSettingsApplied;
+
+            _settingsWindow = new SettingsWindow(_settingsViewModel);
+        }
+
+        _settingsWindow.ShowOnTab(tabIndex);
+    }
+
+    private void OnSettingsApplied(object? sender, AppSettings settings)
+    {
+        _controller?.ApplySettings(settings);
+        UpdateTrayTooltip(settings);
+
+        if (!settings.SaveHistoryToDisk)
+        {
+            _history?.DeleteFile();
+        }
+    }
+
+    private void UpdateTrayTooltip(AppSettings settings)
+    {
+        string hold = HotkeyDisplay.Describe(settings.Hotkeys.PushToTalk);
+        _tray?.SetTooltip($"9Transcribe — กด {hold} ค้างเพื่อพูด");
+    }
+
+    private void OnTrayEnabledChanged(object? sender, bool enabled)
+    {
+        if (_hotkeys is not null)
+        {
+            _hotkeys.IsEnabled = enabled;
+        }
+
+        _tray?.SetState(_controller?.State ?? DictationState.Idle);
+    }
+
+    private static void OnHistoryEntryChosen(object? sender, string text)
+    {
+        try
+        {
+            Clipboard.SetText(text);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"History entry could not be copied: {ex.Message}");
+        }
+    }
+
+    private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category != UserPreferenceCategory.General)
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            ThemeManager.Refresh();
+            _settingsWindow?.ApplyTitleBarTheme();
+        });
     }
 
     private bool ClaimSingleInstance()
@@ -80,10 +234,30 @@ public partial class App : Application
         return false;
     }
 
+    private void ReleaseMutex()
+    {
+        if (_instanceMutex is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _instanceMutex.ReleaseMutex();
+        }
+        catch (ApplicationException)
+        {
+            // Not the owning thread; closing the handle still frees it.
+        }
+
+        _instanceMutex.Dispose();
+        _instanceMutex = null;
+    }
+
     private static void SignalRunningInstance()
     {
-        // The first instance creates its mutex before its event, so a second launch in
-        // that window has to wait a moment for the event to appear.
+        // The first instance creates its mutex before its event, so a second launch inside
+        // that window has to wait for the event to appear.
         for (int attempt = 0; attempt < 10; attempt++)
         {
             try
@@ -115,13 +289,12 @@ public partial class App : Application
             var handles = new WaitHandle[] { signal, token.WaitHandle };
             while (!token.IsCancellationRequested)
             {
-                int index = WaitHandle.WaitAny(handles);
-                if (index != 0 || token.IsCancellationRequested)
+                if (WaitHandle.WaitAny(handles) != 0 || token.IsCancellationRequested)
                 {
                     return;
                 }
 
-                Dispatcher.BeginInvoke(() => ShowSettingsRequested?.Invoke(this, EventArgs.Empty));
+                Dispatcher.BeginInvoke(() => ShowSettings(0));
             }
         })
         {
@@ -141,7 +314,9 @@ public partial class App : Application
 
         if (repeating)
         {
-            // A tight failure loop would spin forever behind a swallowed exception.
+            // A tight failure loop would spin forever behind a swallowed exception, so let
+            // the second one in ten seconds take the process down (and the tray icon with it).
+            _tray?.Dispose();
             e.Handled = false;
             return;
         }

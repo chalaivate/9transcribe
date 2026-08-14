@@ -1,0 +1,107 @@
+<Window x:Class="NineTranscribe.Overlay.OverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowActivated="False"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight"
+        Focusable="False"
+        IsHitTestVisible="False"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Opacity="0"
+        FontFamily="Leelawadee UI, Segoe UI">
+
+  <Window.Resources>
+    <!-- The pill is always dark, whatever the app theme: it has to stay readable on top of
+         any wallpaper or document. -->
+    <SolidColorBrush x:Key="PillBackground" Color="#E61C1C1E" />
+    <SolidColorBrush x:Key="PillErrorBackground" Color="#E6541416" />
+    <SolidColorBrush x:Key="PillForeground" Color="#F2FFFFFF" />
+    <SolidColorBrush x:Key="RecordDot" Color="#FFFF453A" />
+
+    <Style x:Key="LevelBar" TargetType="Rectangle">
+      <Setter Property="Width" Value="3" />
+      <Setter Property="Fill" Value="#B3FFFFFF" />
+      <Setter Property="RadiusX" Value="1.5" />
+      <Setter Property="RadiusY" Value="1.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="1,0" />
+    </Style>
+  </Window.Resources>
+
+  <Border x:Name="Pill"
+          CornerRadius="22"
+          Background="{StaticResource PillBackground}"
+          Padding="18,10"
+          MaxWidth="900">
+    <Border.Effect>
+      <DropShadowEffect BlurRadius="16" ShadowDepth="2" Opacity="0.35" Color="#FF000000" />
+    </Border.Effect>
+
+    <Grid>
+      <!-- Listening -->
+      <StackPanel x:Name="ListeningPanel" Orientation="Horizontal" Visibility="Collapsed">
+        <Ellipse x:Name="RecordDotShape" Width="14" Height="14"
+                 Fill="{StaticResource RecordDot}"
+                 VerticalAlignment="Center"
+                 RenderTransformOrigin="0.5,0.5">
+          <Ellipse.RenderTransform>
+            <ScaleTransform x:Name="RecordDotScale" ScaleX="1" ScaleY="1" />
+          </Ellipse.RenderTransform>
+        </Ellipse>
+
+        <StackPanel Orientation="Horizontal" Margin="12,0,0,0" Height="20" VerticalAlignment="Center">
+          <Rectangle x:Name="Bar1" Style="{StaticResource LevelBar}" Height="4" />
+          <Rectangle x:Name="Bar2" Style="{StaticResource LevelBar}" Height="4" />
+          <Rectangle x:Name="Bar3" Style="{StaticResource LevelBar}" Height="4" />
+          <Rectangle x:Name="Bar4" Style="{StaticResource LevelBar}" Height="4" />
+          <Rectangle x:Name="Bar5" Style="{StaticResource LevelBar}" Height="4" />
+        </StackPanel>
+
+        <TextBlock x:Name="ListeningText" Margin="14,0,0,0" FontSize="14"
+                   Foreground="{StaticResource PillForeground}" VerticalAlignment="Center" />
+      </StackPanel>
+
+      <!-- Processing -->
+      <StackPanel x:Name="ProcessingPanel" Orientation="Horizontal" Visibility="Collapsed">
+        <Path x:Name="Spinner" Width="16" Height="16"
+              Stroke="{StaticResource PillForeground}" StrokeThickness="2"
+              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+              Data="M 8,1 A 7,7 0 1 1 1,8"
+              RenderTransformOrigin="0.5,0.5" VerticalAlignment="Center">
+          <Path.RenderTransform>
+            <RotateTransform x:Name="SpinnerRotation" Angle="0" />
+          </Path.RenderTransform>
+        </Path>
+        <TextBlock x:Name="ProcessingText" Margin="12,0,0,0" FontSize="14"
+                   Foreground="{StaticResource PillForeground}" VerticalAlignment="Center" />
+      </StackPanel>
+
+      <!-- Preview: LineHeight is mandatory. Thai stacks tone marks above upper vowels
+           (ที่ ปู่ กิ์) and they are clipped at the default line height. -->
+      <TextBlock x:Name="PreviewTextBlock" Visibility="Collapsed"
+                 FontSize="30"
+                 LineHeight="48"
+                 LineStackingStrategy="BlockLineHeight"
+                 TextWrapping="Wrap"
+                 TextAlignment="Center"
+                 TextTrimming="CharacterEllipsis"
+                 MaxHeight="150"
+                 Foreground="{StaticResource PillForeground}" />
+
+      <!-- Error and notice -->
+      <StackPanel x:Name="MessagePanel" Orientation="Horizontal" Visibility="Collapsed">
+        <TextBlock x:Name="MessageGlyph" Text="!" FontSize="15" FontWeight="Bold"
+                   Foreground="{StaticResource PillForeground}" VerticalAlignment="Center" />
+        <TextBlock x:Name="MessageText" Margin="10,0,0,0" FontSize="13" MaxWidth="520"
+                   TextWrapping="Wrap" LineHeight="22" LineStackingStrategy="BlockLineHeight"
+                   Foreground="{StaticResource PillForeground}" VerticalAlignment="Center" />
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

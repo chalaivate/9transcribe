@@ -1,0 +1,479 @@
+<Window x:Class="NineTranscribe.UI.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="9Transcribe — การตั้งค่า"
+        Width="700" Height="620"
+        MinWidth="620" MinHeight="540"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource BgWindow}"
+        Foreground="{DynamicResource FgPrimary}"
+        FontFamily="Leelawadee UI, Segoe UI"
+        FontSize="14"
+        TextOptions.TextFormattingMode="Display">
+
+  <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource FgPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style x:Key="Label" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource FgPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,0,12,0" />
+    </Style>
+
+    <Style x:Key="Hint" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource FgSecondary}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Margin" Value="0,4,0,0" />
+    </Style>
+
+    <Style x:Key="SectionCard" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource BgCard}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="16" />
+      <Setter Property="Margin" Value="0,0,0,12" />
+    </Style>
+
+    <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="{DynamicResource FgPrimary}" />
+      <Setter Property="Margin" Value="0,4" />
+    </Style>
+
+    <Style x:Key="OptionRadio" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="{DynamicResource FgPrimary}" />
+      <Setter Property="Margin" Value="0,4" />
+    </Style>
+
+    <!-- One cell of the 3x3 screen-position picker. -->
+    <Style x:Key="AnchorCell" TargetType="RadioButton">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="Margin" Value="2" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="Chrome"
+                    Background="{DynamicResource BgInput}"
+                    BorderBrush="{DynamicResource BorderSubtle}"
+                    BorderThickness="1"
+                    CornerRadius="4">
+              <Ellipse x:Name="Dot" Width="8" Height="8"
+                       Fill="{DynamicResource FgSecondary}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Accent}" />
+                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                <Setter TargetName="Dot" Property="Fill" Value="White" />
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <TabControl x:Name="Tabs" Grid.Row="0" SelectionChanged="OnTabChanged">
+
+      <!-- ================= ทั่วไป ================= -->
+      <TabItem Header="ทั่วไป">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <StackPanel>
+
+            <Border Style="{StaticResource SectionCard}">
+              <StackPanel>
+                <TextBlock Text="ตำแหน่งแสดงผลบนจอ" FontWeight="SemiBold" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="เลือกจุดที่แถบสถานะและข้อความพรีวิวจะปรากฏ" />
+                <Grid HorizontalAlignment="Left" Margin="0,10,0,0">
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+
+                  <RadioButton Grid.Row="0" Grid.Column="0" GroupName="Anchor" Style="{StaticResource AnchorCell}"
+                               IsChecked="{Binding IsOverlayTopLeft, Mode=TwoWay}" ToolTip="บนซ้าย" />
+                  <RadioButton Grid.Row="0" Grid.Column="1" GroupName="Anchor" Style="{StaticResource AnchorCell}"
+                               IsChecked="{Binding IsOverlayTop, Mode=TwoWay}" ToolTip="บนกลาง" />
+                  <RadioButton Grid.Row="0" Grid.Column="2" GroupName="Anchor" Style="{StaticResource AnchorCell}"
+                               IsChecked="{Binding IsOverlayTopRight, Mode=TwoWay}" ToolTip="บนขวา" />
+
+                  <RadioButton Grid.Row="1" Grid.Column="0" GroupName="Anchor" Style="{StaticResource AnchorCell}"
+                               IsChecked="{Binding IsOverlayLeft, Mode=TwoWay}" ToolTip="กลางซ้าย" />
+                  <Border Grid.Row="1" Grid.Column="1" Width="34" Height="26" Margin="2"
+                          Background="Transparent" BorderBrush="{DynamicResource BorderSubtle}"
+                          BorderThickness="1" CornerRadius="4" Opacity="0.4" />
+                  <RadioButton Grid.Row="1" Grid.Column="2" GroupName="Anchor" Style="{StaticResource AnchorCell}"
+                               IsChecked="{Binding IsOverlayRight, Mode=TwoWay}" ToolTip="กลางขวา" />
+
+                  <RadioButton Grid.Row="2" Grid.Column="0" GroupName="Anchor" Style="{StaticResource AnchorCell}"
+                               IsChecked="{Binding IsOverlayBottomLeft, Mode=TwoWay}" ToolTip="ล่างซ้าย" />
+                  <RadioButton Grid.Row="2" Grid.Column="1" GroupName="Anchor" Style="{StaticResource AnchorCell}"
+                               IsChecked="{Binding IsOverlayBottom, Mode=TwoWay}" ToolTip="ล่างกลาง" />
+                  <RadioButton Grid.Row="2" Grid.Column="2" GroupName="Anchor" Style="{StaticResource AnchorCell}"
+                               IsChecked="{Binding IsOverlayBottomRight, Mode=TwoWay}" ToolTip="ล่างขวา" />
+                </Grid>
+                <CheckBox Content="แสดงแถบสถานะ" IsChecked="{Binding ShowOverlay, Mode=TwoWay}" Margin="0,10,0,0" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource SectionCard}">
+              <StackPanel>
+                <TextBlock Text="วิธีพิมพ์ข้อความ" FontWeight="SemiBold" />
+                <RadioButton GroupName="Insertion" Style="{StaticResource OptionRadio}"
+                             Content="วางจากคลิปบอร์ด (เร็ว — แนะนำ)"
+                             IsChecked="{Binding UseClipboard, Mode=TwoWay}" />
+                <RadioButton GroupName="Insertion" Style="{StaticResource OptionRadio}"
+                             Content="จำลองการพิมพ์ทีละตัวอักษร (ช้ากว่า แต่ไม่ยุ่งกับคลิปบอร์ด)"
+                             IsChecked="{Binding UseTyping, Mode=TwoWay}" />
+                <CheckBox Content="คืนค่าคลิปบอร์ดเดิมหลังวางข้อความ"
+                          IsChecked="{Binding RestoreClipboard, Mode=TwoWay}" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="ข้อความที่พูดจะไม่ถูกเก็บในประวัติคลิปบอร์ดของ Windows (Win+V) ไม่ว่าจะเลือกแบบใด" />
+
+                <TextBlock Text="ท้ายข้อความ" FontWeight="SemiBold" Margin="0,14,0,4" />
+                <ComboBox ItemsSource="{Binding TrailingChoices}"
+                          DisplayMemberPath="Label"
+                          SelectedValuePath="Value"
+                          SelectedValue="{Binding TrailingMode, Mode=TwoWay}" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource SectionCard}">
+              <StackPanel>
+                <TextBlock Text="การหยุดอัตโนมัติ (โหมดกดสลับ)" FontWeight="SemiBold" />
+
+                <Grid Margin="0,10,0,0">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="70" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="ความไวการตรวจจับเสียง" />
+                  <Slider Grid.Column="1" Minimum="-60" Maximum="-20" TickFrequency="1" IsSnapToTickEnabled="True"
+                          VerticalAlignment="Center" Value="{Binding VadEnterDbfs, Mode=TwoWay}" />
+                  <TextBlock Grid.Column="2" HorizontalAlignment="Right"
+                             Text="{Binding VadEnterDbfs, StringFormat={}{0:0} dB}" />
+                </Grid>
+
+                <Grid Margin="0,8,0,0">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="70" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="หยุดหลังเงียบ" />
+                  <Slider Grid.Column="1" Minimum="0.5" Maximum="3.0" TickFrequency="0.1" IsSnapToTickEnabled="True"
+                          VerticalAlignment="Center" Value="{Binding VadHangoverSeconds, Mode=TwoWay}" />
+                  <TextBlock Grid.Column="2" HorizontalAlignment="Right"
+                             Text="{Binding VadHangoverSeconds, StringFormat={}{0:0.0} วิ}" />
+                </Grid>
+
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="ภาษาไทยมีการเว้นจังหวะระหว่างวลีบ่อย ค่าประมาณ 1.2 วินาทีจะไม่ตัดกลางประโยค" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource SectionCard}">
+              <StackPanel>
+                <TextBlock Text="ทั่วไป" FontWeight="SemiBold" />
+                <Grid Margin="0,10,0,0">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="220" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="ธีม" />
+                  <ComboBox Grid.Column="1"
+                            ItemsSource="{Binding ThemeChoices}"
+                            DisplayMemberPath="Label"
+                            SelectedValuePath="Value"
+                            SelectedValue="{Binding Theme, Mode=TwoWay}" />
+                </Grid>
+                <CheckBox Content="เริ่มทำงานพร้อม Windows" Margin="0,10,0,0"
+                          IsChecked="{Binding StartWithWindows, Mode=TwoWay}" />
+              </StackPanel>
+            </Border>
+
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- ================= API ================= -->
+      <TabItem Header="API">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <StackPanel>
+            <Border Style="{StaticResource SectionCard}">
+              <StackPanel>
+                <TextBlock Text="OpenAI API Key" FontWeight="SemiBold" />
+                <Grid Margin="0,10,0,0">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <PasswordBox x:Name="ApiKeyBox" Grid.Column="0" Height="30" VerticalContentAlignment="Center"
+                               PasswordChanged="OnApiKeyChanged" />
+                  <TextBox x:Name="ApiKeyPlainBox" Grid.Column="0" Height="30" VerticalContentAlignment="Center"
+                           Visibility="Collapsed" TextChanged="OnApiKeyPlainChanged" />
+                  <ToggleButton x:Name="RevealKeyButton" Grid.Column="1" Width="70" Height="30" Margin="8,0,0,0"
+                                Content="แสดง" Checked="OnRevealKey" Unchecked="OnHideKey" />
+                </Grid>
+                <TextBlock Style="{StaticResource Hint}" Text="{Binding ApiKeyHint}" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="คีย์จะถูกเข้ารหัสด้วย Windows DPAPI เฉพาะบัญชีผู้ใช้นี้เท่านั้นที่เปิดอ่านได้" />
+
+                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                  <Button Content="ทดสอบการเชื่อมต่อ" Padding="14,6"
+                          Command="{Binding TestApiKeyCommand}" />
+                  <TextBlock Margin="12,0,0,0" Text="กำลังตรวจสอบ…"
+                             Visibility="{Binding IsTestingApi, Converter={StaticResource BoolToVis}}" />
+                  <TextBlock Margin="12,0,0,0" Text="{Binding ApiTestMessage}"
+                             Visibility="{Binding HasApiTestResult, Converter={StaticResource BoolToVis}}">
+                    <TextBlock.Style>
+                      <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="{DynamicResource Danger}" />
+                        <Setter Property="VerticalAlignment" Value="Center" />
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding ApiTestSucceeded}" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource Success}" />
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </TextBlock.Style>
+                  </TextBlock>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource SectionCard}">
+              <StackPanel>
+                <TextBlock Text="โมเดลที่ใช้ถอดเสียง" FontWeight="SemiBold" />
+                <ComboBox Margin="0,10,0,0"
+                          ItemsSource="{Binding Models}"
+                          DisplayMemberPath="DisplayName"
+                          SelectedValuePath="Id"
+                          SelectedValue="{Binding Model, Mode=TwoWay}" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="gpt-4o-transcribe แม่นยำที่สุดกับภาษาไทยปนอังกฤษ ส่วน mini จะเร็วและประหยัดกว่า" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- ================= คีย์ลัด ================= -->
+      <TabItem Header="คีย์ลัด">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <StackPanel>
+            <Border Style="{StaticResource SectionCard}">
+              <StackPanel>
+                <Grid Margin="0,0,0,10">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="210" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="กดค้างเพื่อพูด" />
+                  <Button Grid.Column="1" Height="32" Content="{Binding PushToTalkDisplay}"
+                          Command="{Binding CapturePushToTalkCommand}" />
+                  <Button Grid.Column="2" Content="ล้าง" Margin="8,0,0,0" Padding="12,4"
+                          Command="{Binding ClearPushToTalkCommand}" />
+                </Grid>
+
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="210" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="กดเพื่อเริ่ม/หยุด" />
+                  <Button Grid.Column="1" Height="32" Content="{Binding ToggleDisplay}"
+                          Command="{Binding CaptureToggleCommand}" />
+                  <Button Grid.Column="2" Content="ล้าง" Margin="8,0,0,0" Padding="12,4"
+                          Command="{Binding ClearToggleCommand}" />
+                </Grid>
+
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="คลิกที่ปุ่มแล้วกดคีย์ที่ต้องการ • Esc เพื่อยกเลิก • ปล่อยคีย์ทั้งหมดเพื่อบันทึก" />
+                <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Accent}"
+                           Text="{Binding CaptureHint}"
+                           Visibility="{Binding IsCapturing, Converter={StaticResource BoolToVis}}" />
+                <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Warning}"
+                           Text="{Binding HotkeyWarning}"
+                           Visibility="{Binding HasHotkeyWarning, Converter={StaticResource BoolToVis}}" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource SectionCard}">
+              <StackPanel>
+                <TextBlock Text="ข้อควรระวัง" FontWeight="SemiBold" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="หลีกเลี่ยงปุ่ม ` (สลับภาษาไทย-อังกฤษ), Alt+Shift, Ctrl+Shift, Win+Space และ Win+H เพราะ Windows ใช้อยู่แล้ว ปุ่มตัวอักษรเดี่ยว ๆ จะชนกับการพิมพ์ภาษาไทยทั้งหมด" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- ================= คำศัพท์ ================= -->
+      <TabItem Header="คำศัพท์">
+        <Grid Margin="12">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+
+          <Border Grid.Row="0" Style="{StaticResource SectionCard}">
+            <StackPanel>
+              <TextBlock Text="คำศัพท์เฉพาะ (ช่วยให้ถอดเสียงแม่นขึ้น)" FontWeight="SemiBold" />
+              <TextBlock Style="{StaticResource Hint}"
+                         Text="ใส่คำละบรรทัด เช่น ชื่อบริษัท ชื่อสินค้า ศัพท์เทคนิค — ระบบจะส่งให้ AI ใช้อ้างอิงตอนถอดเสียง" />
+              <TextBox Height="110" Margin="0,8,0,0"
+                       AcceptsReturn="True" TextWrapping="NoWrap"
+                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                       Text="{Binding VocabularyText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+              <TextBlock Margin="0,6,0,0" Text="{Binding VocabularyBudgetText}">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="{DynamicResource FgSecondary}" />
+                    <Setter Property="FontSize" Value="12" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding IsVocabularyOverBudget}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource Warning}" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+            </StackPanel>
+          </Border>
+
+          <Border Grid.Row="1" Style="{StaticResource SectionCard}">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+              </Grid.RowDefinitions>
+              <StackPanel Grid.Row="0">
+                <TextBlock Text="แก้คำอัตโนมัติ (ค้นหา → แทนที่)" FontWeight="SemiBold" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="ใช้กับคำที่ถอดผิดซ้ำ ๆ ทำงานตามลำดับจากบนลงล่าง" />
+              </StackPanel>
+
+              <DataGrid Grid.Row="1" Margin="0,8,0,0"
+                        ItemsSource="{Binding Replacements}"
+                        AutoGenerateColumns="False"
+                        CanUserAddRows="False"
+                        CanUserDeleteRows="True"
+                        HeadersVisibility="Column"
+                        GridLinesVisibility="Horizontal"
+                        Background="{DynamicResource BgInput}"
+                        RowBackground="{DynamicResource BgInput}"
+                        BorderBrush="{DynamicResource BorderSubtle}">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="ค้นหา" Width="*"
+                                      Binding="{Binding Find, UpdateSourceTrigger=LostFocus}" />
+                  <DataGridTextColumn Header="แทนที่ด้วย" Width="*"
+                                      Binding="{Binding Replace, UpdateSourceTrigger=LostFocus}" />
+                  <DataGridCheckBoxColumn Header="ตรงตัวพิมพ์" Width="100"
+                                          Binding="{Binding MatchCase, UpdateSourceTrigger=PropertyChanged}" />
+                </DataGrid.Columns>
+              </DataGrid>
+
+              <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+                <Button Content="เพิ่มแถว" Padding="14,5" Command="{Binding AddReplacementCommand}" />
+                <TextBlock Style="{StaticResource Hint}" Margin="12,0,0,0"
+                           Text="ลบแถวด้วยการเลือกแถวแล้วกด Delete" />
+              </StackPanel>
+            </Grid>
+          </Border>
+        </Grid>
+      </TabItem>
+
+      <!-- ================= ทดสอบ ================= -->
+      <TabItem Header="ทดสอบ">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <StackPanel>
+            <Border Style="{StaticResource SectionCard}">
+              <StackPanel>
+                <TextBlock Text="ไมโครโฟน" FontWeight="SemiBold" />
+                <ComboBox Margin="0,10,0,0"
+                          ItemsSource="{Binding Microphones}"
+                          DisplayMemberPath="Label"
+                          SelectedItem="{Binding SelectedMicrophone, Mode=TwoWay}" />
+
+                <TextBlock Text="ระดับเสียง" FontWeight="SemiBold" Margin="0,16,0,6" />
+                <Grid Height="22">
+                  <Border Background="{DynamicResource BgInput}"
+                          BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" CornerRadius="4" />
+                  <ProgressBar Margin="1" Minimum="0" Maximum="1" Value="{Binding MeterLevel, Mode=OneWay}"
+                              Background="Transparent" BorderThickness="0">
+                    <ProgressBar.Style>
+                      <Style TargetType="ProgressBar">
+                        <Setter Property="Foreground" Value="{DynamicResource FgSecondary}" />
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding MeterIsSpeech}" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource Success}" />
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </ProgressBar.Style>
+                  </ProgressBar>
+                </Grid>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="แถบจะเปลี่ยนเป็นสีเขียวเมื่อระบบตัดสินว่าเป็นเสียงพูด" />
+
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                  <Button Content="ปรับความไวอัตโนมัติ" Padding="14,6" Command="{Binding CalibrateCommand}" />
+                  <TextBlock Style="{StaticResource Hint}" Margin="12,0,0,0"
+                             Text="เงียบสักครู่แล้วกดปุ่มนี้ ระบบจะตั้งค่าตามเสียงรบกวนในห้อง" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource SectionCard}">
+              <StackPanel>
+                <TextBlock Text="ทดสอบการถอดเสียง" FontWeight="SemiBold" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="ใช้คำศัพท์เฉพาะและกฎแก้คำอัตโนมัติจริง จึงตรวจสอบการตั้งค่าได้ทั้งหมดในครั้งเดียว" />
+                <Button Margin="0,10,0,0" Padding="14,6" HorizontalAlignment="Left"
+                        Content="{Binding TestButtonText}" Command="{Binding TestRecordCommand}" />
+                <TextBox Margin="0,10,0,0" Height="90" IsReadOnly="True"
+                         TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                         Background="{DynamicResource BgInput}"
+                         Text="{Binding TestTranscript, Mode=OneWay}" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+
+    <TextBlock Grid.Row="1" Margin="4,10,0,0" Foreground="{DynamicResource FgSecondary}"
+               FontSize="12" Text="{Binding StatusText}" />
+  </Grid>
+</Window>

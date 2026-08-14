@@ -153,7 +153,25 @@ public sealed class OpenAiClientTests
     }
 
     [Fact]
-    public async Task TestApiKeyAsync_TreatsForbiddenAsAScopeLimitNotABadKey()
+    public async Task TestApiKeyAsync_WhenModelsIsForbidden_FallsBackToATranscriptionProbe()
+    {
+        // A project-scoped key can be denied /v1/models while transcription still works.
+        var handler = new StubHandler(request => Task.FromResult(
+            request.RequestUri!.AbsolutePath.Contains("models", StringComparison.Ordinal)
+                ? Json(HttpStatusCode.Forbidden, """{"error":{"message":"insufficient permissions"}}""")
+                : Json(HttpStatusCode.OK, """{"text":""}""")));
+
+        var client = new OpenAiTranscriptionClient(() => "sk-test", new HttpClient(handler));
+        ApiKeyTestResult result = await client.TestApiKeyAsync(
+            "sk-test",
+            "gpt-4o-transcribe",
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public async Task TestApiKeyAsync_WhenTheProbeIsAlsoRejected_ReportsFailure()
     {
         var handler = new StubHandler(_ => Task.FromResult(Json(
             HttpStatusCode.Forbidden,
@@ -165,7 +183,8 @@ public sealed class OpenAiClientTests
             "gpt-4o-transcribe",
             CancellationToken.None);
 
-        Assert.True(result.Success);
+        Assert.False(result.Success);
+        Assert.Equal(TranscriptionErrorKind.InvalidApiKey, result.Error);
     }
 
     [Fact]

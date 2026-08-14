@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using NineTranscribe.Audio;
 
 namespace NineTranscribe.Api;
 
@@ -133,12 +134,9 @@ public sealed class OpenAiTranscriptionClient
 
             if (response.StatusCode == HttpStatusCode.Forbidden)
             {
-                // The key exists but cannot list models: that is a permission scope, not a
-                // bad key, and transcription may well still work.
-                return new ApiKeyTestResult(
-                    true,
-                    "เชื่อมต่อสำเร็จ (คีย์นี้ดูรายการโมเดลไม่ได้ แต่ใช้ถอดเสียงได้)",
-                    ModelAccessible: true);
+                // A project-scoped key can be denied the models endpoint while transcription
+                // works fine, so the only honest answer is to try a real transcription.
+                return await ProbeWithSilenceAsync(apiKey, cancellationToken).ConfigureAwait(false);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -168,6 +166,39 @@ public sealed class OpenAiTranscriptionClient
                 false,
                 OpenAiErrorParser.Network(ex).UserMessageThai,
                 Error: TranscriptionErrorKind.NetworkUnavailable);
+        }
+    }
+
+    /// <summary>
+    /// Transcribes a fraction of a second of silence with the cheapest model, purely to learn
+    /// whether the key is accepted. Costs a rounding error and takes about a second.
+    /// </summary>
+    private async Task<ApiKeyTestResult> ProbeWithSilenceAsync(string apiKey, CancellationToken cancellationToken)
+    {
+        var options = new TranscriptionRequestOptions(
+            "gpt-4o-mini-transcribe",
+            Language: null,
+            Prompt: null,
+            TimeoutSeconds: 20);
+
+        try
+        {
+            await SendOnceAsync(
+                    WavUtil.CreateSilence(TimeSpan.FromMilliseconds(300)),
+                    options,
+                    apiKey,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return new ApiKeyTestResult(true, "เชื่อมต่อสำเร็จ");
+        }
+        catch (TranscriptionException ex) when (ex.Kind == TranscriptionErrorKind.AudioTooShort)
+        {
+            // The request was authorized; it only failed on the audio itself.
+            return new ApiKeyTestResult(true, "เชื่อมต่อสำเร็จ");
+        }
+        catch (TranscriptionException ex)
+        {
+            return new ApiKeyTestResult(false, ex.UserMessageThai, Error: ex.Kind);
         }
     }
 
