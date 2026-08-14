@@ -214,11 +214,14 @@ public sealed class VadMonitorTests
         var monitor = new VadMonitor(new VadSettings { HangoverMs = 300 });
 
         monitor.Process(Tone(40, -45));
-        double floorBefore = monitor.NoiseFloorDbfs;
         monitor.Process(Tone(20, -20));
         monitor.Process(Silence(20));
 
         long consumed = monitor.UtteranceEndByteOffset;
+
+        // Measured across the call itself: the floor tracks the room continuously, so comparing
+        // it to a reading from before the pause would just be measuring the room going quiet.
+        double floorBefore = monitor.NoiseFloorDbfs;
         monitor.BeginUtterance();
 
         Assert.Equal(floorBefore, monitor.NoiseFloorDbfs, 3);
@@ -228,6 +231,22 @@ public sealed class VadMonitorTests
 
         // Offsets stay absolute, so they still line up with the recorder's capture buffer.
         Assert.True(monitor.UtteranceStartByteOffset >= consumed);
+    }
+
+    [Fact]
+    public void Reset_UnlikeBeginUtterance_ReturnsTheNoiseFloorToItsSeed()
+    {
+        var monitor = new VadMonitor(new VadSettings());
+
+        monitor.Process(Tone(40, -75));
+        double learned = monitor.NoiseFloorDbfs;
+        Assert.True(learned < -60.0);
+
+        monitor.Reset();
+
+        // Why segmentation needs BeginUtterance: starting each sentence with Reset would throw
+        // away the room the detector has learned and make it deaf or twitchy for a few frames.
+        Assert.True(monitor.NoiseFloorDbfs > learned);
     }
 
     private static byte[] Concat(params byte[][] parts)
