@@ -29,7 +29,7 @@ internal sealed class TypingStrategy
 
             if (segment.IsKey)
             {
-                Send(BuildKey(segment.Key));
+                Send(BuildKey(segment.VirtualKey));
                 Pause(intervalMs);
                 continue;
             }
@@ -167,7 +167,7 @@ internal sealed class TypingStrategy
         InsertionOutcome.Cancelled,
         "หยุดพิมพ์กลางคัน เพราะมีการกดแป้นพิมพ์");
 
-    private readonly record struct Segment(string Text, ushort Key, bool IsKey)
+    private readonly record struct Segment(string Text, ushort VirtualKey, bool IsKey)
     {
         internal static Segment Printable(string text) => new(text, 0, false);
 
