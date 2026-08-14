@@ -87,14 +87,17 @@ internal sealed class ClipboardStrategy
                 CaptureBackup(backup);
             }
 
-            if (!InputNative.EmptyClipboard())
+            IntPtr handle = AllocateUnicode(text);
+            if (handle == IntPtr.Zero)
             {
                 return false;
             }
 
-            IntPtr handle = AllocateUnicode(text);
-            if (handle == IntPtr.Zero)
+            // Emptied only once the replacement is ready, so a failed allocation cannot leave
+            // the user with an empty clipboard and their previous copy gone.
+            if (!InputNative.EmptyClipboard())
             {
+                InputNative.GlobalFree(handle);
                 return false;
             }
 

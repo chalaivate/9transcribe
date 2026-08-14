@@ -215,6 +215,10 @@
                 </Grid>
                 <CheckBox Content="เริ่มทำงานพร้อม Windows" Margin="0,10,0,0"
                           IsChecked="{Binding StartWithWindows, Mode=TwoWay}" />
+                <CheckBox Content="บันทึกประวัติข้อความลงดิสก์"
+                          IsChecked="{Binding SaveHistoryToDisk, Mode=TwoWay}" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="ปกติประวัติเก็บในหน่วยความจำเท่านั้นและหายเมื่อปิดโปรแกรม เปิดตัวเลือกนี้เฉพาะเมื่อจำเป็น เพราะข้อความที่พูดอาจมีข้อมูลอ่อนไหว" />
               </StackPanel>
             </Border>
 

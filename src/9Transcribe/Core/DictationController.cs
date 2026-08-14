@@ -43,6 +43,7 @@ public sealed class DictationController : IDisposable
     private bool _startedByToggle;
     private bool _recordingActive;
     private int _pipelinesRunning;
+    private long _dictationSequence;
 
     public DictationController(
         SettingsStore settings,
@@ -111,7 +112,8 @@ public sealed class DictationController : IDisposable
     }
 
     /// <summary>Surfaces a start-up problem (a corrupt settings file, say) on the overlay.</summary>
-    public void ShowStartupNotice(string messageThai) => RunOnUi(() => _overlay.ShowNotice(messageThai));
+    public void ShowStartupNotice(string messageThai) =>
+        ShowOverlay(o => o.ShowNotice(messageThai), CurrentSequence);
 
     /// <summary>
     /// Runs the full pipeline on an existing recording without inserting the result. The
@@ -201,7 +203,17 @@ public sealed class DictationController : IDisposable
         RunOnUi(() => _overlay.HideNow());
     }
 
-    private void OnPhysicalKeyPressed(object? sender, KeyEventData e) => _injector.NotifyPhysicalKeyPressed();
+    private void OnPhysicalKeyPressed(object? sender, KeyEventData e)
+    {
+        // Our own hotkeys are not "the user started typing" — treating them as such would make
+        // starting a second dictation abort the insertion of the first one mid-word.
+        if (e.Vk == _hotkeys.PushToTalk.Vk || e.Vk == _hotkeys.Toggle.Vk)
+        {
+            return;
+        }
+
+        _injector.NotifyPhysicalKeyPressed();
+    }
 
     private void BeginRecording(bool toggleMode)
     {
@@ -214,19 +226,20 @@ public sealed class DictationController : IDisposable
 
             _recordingActive = true;
             _startedByToggle = toggleMode;
+            _dictationSequence++;
         }
 
         AppSettings settings = _settings.Current;
 
-        RunOnUi(() =>
+        if (settings.ShowOverlay)
         {
-            if (settings.ShowOverlay)
+            RunOnUi(() =>
             {
                 // The monitor is chosen once, from where the user is actually typing.
                 _overlayWindow.AttachToMonitorOfForegroundWindow();
                 _overlay.ShowListening(toggleMode);
-            }
-        });
+            });
+        }
 
         var options = new RecordingOptions(
             settings.MicDeviceFriendlyName,
@@ -242,18 +255,53 @@ public sealed class DictationController : IDisposable
         catch (Exception ex)
         {
             Log.Error("Recording could not be started", ex);
-            lock (_gate)
-            {
-                _recordingActive = false;
-            }
+            AbandonRecording("เริ่มบันทึกเสียงไม่ได้ กรุณาตรวจสอบไมโครโฟน");
+            return;
+        }
 
-            ShowError("เริ่มบันทึกเสียงไม่ได้ กรุณาตรวจสอบไมโครโฟน");
-            RefreshState();
+        // The recorder reports a failed device open through its Error event rather than by
+        // throwing, and it ignores a start request while something else already holds the
+        // microphone. Either way the only reliable signal is whether it actually started.
+        if (_recorder.State != RecorderState.Recording)
+        {
+            AbandonRecording("เริ่มบันทึกเสียงไม่ได้ ไมโครโฟนอาจถูกใช้งานอยู่");
             return;
         }
 
         RefreshState();
         _hotkeys.CancelKeyArmed = true;
+    }
+
+    /// <summary>Clears a session that never really began, so the next hotkey press still works.</summary>
+    private void AbandonRecording(string messageThai)
+    {
+        lock (_gate)
+        {
+            _recordingActive = false;
+        }
+
+        _hotkeys.CancelKeyArmed = false;
+        ShowError(messageThai);
+        RefreshState();
+    }
+
+    /// <summary>Drops any recording in progress, used when the tray master switch goes off.</summary>
+    public void CancelActive()
+    {
+        lock (_gate)
+        {
+            if (!_recordingActive)
+            {
+                return;
+            }
+
+            _recordingActive = false;
+        }
+
+        _recorder.Cancel();
+        _hotkeys.CancelKeyArmed = false;
+        RefreshState();
+        RunOnUi(() => _overlay.HideNow());
     }
 
     private void OnLevelChanged(object? sender, LevelEventArgs e)
@@ -296,7 +344,7 @@ public sealed class DictationController : IDisposable
         if (!e.HasSpeech || e.WavBytes.Length == 0)
         {
             RefreshState();
-            RunOnUi(() => _overlay.ShowNotice("ไม่พบเสียงพูด"));
+            ShowOverlay(o => o.ShowNotice("ไม่พบเสียงพูด"), CurrentSequence);
             return;
         }
 
@@ -305,15 +353,24 @@ public sealed class DictationController : IDisposable
             _pipelinesRunning++;
         }
 
+        long sequence;
+        lock (_gate)
+        {
+            sequence = _dictationSequence;
+        }
+
         RefreshState();
-        RunOnUi(() => _overlay.ShowProcessing());
+        ShowOverlay(o => o.ShowProcessing(), sequence);
 
         // Deliberately not cancelling any pipeline already in flight: chaining a second
         // dictation while the first is still uploading must not throw the first one away.
-        _ = Task.Run(() => RunPipelineAsync(e, _shutdown.Token), CancellationToken.None);
+        _ = Task.Run(() => RunPipelineAsync(e, sequence, _shutdown.Token), CancellationToken.None);
     }
 
-    private async Task RunPipelineAsync(RecordingCompletedEventArgs recording, CancellationToken cancellationToken)
+    private async Task RunPipelineAsync(
+        RecordingCompletedEventArgs recording,
+        long sequence,
+        CancellationToken cancellationToken)
     {
         AppSettings settings = _settings.Current;
 
@@ -326,7 +383,7 @@ public sealed class DictationController : IDisposable
             string text = TranscriptPostProcessor.Process(result.Text, settings);
             if (text.Length == 0)
             {
-                RunOnUi(() => _overlay.ShowNotice("ไม่พบข้อความ"));
+                ShowOverlay(o => o.ShowNotice("ไม่พบข้อความ"), sequence);
                 return;
             }
 
@@ -342,22 +399,23 @@ public sealed class DictationController : IDisposable
             switch (insertion.Outcome)
             {
                 case InsertionOutcome.Success:
-                    RunOnUi(() => _overlay.ShowPreview(text));
+                    ShowOverlay(o => o.ShowPreview(text), sequence);
                     break;
 
                 case InsertionOutcome.Cancelled:
-                    RunOnUi(() => _overlay.HideNow());
+                    ShowOverlay(o => o.HideNow(), sequence);
                     break;
 
                 default:
-                    RunOnUi(() => _overlay.ShowError(
-                        insertion.UserMessageThai ?? "วางข้อความไม่สำเร็จ"));
+                    ShowOverlay(
+                        o => o.ShowError(insertion.UserMessageThai ?? "วางข้อความไม่สำเร็จ"),
+                        sequence);
                     break;
             }
         }
         catch (OperationCanceledException)
         {
-            RunOnUi(() => _overlay.HideNow());
+            ShowOverlay(o => o.HideNow(), sequence);
         }
         catch (TranscriptionException ex)
         {
@@ -365,17 +423,19 @@ public sealed class DictationController : IDisposable
 
             if (ex.Kind == TranscriptionErrorKind.AudioTooShort)
             {
-                RunOnUi(() => _overlay.ShowNotice("ไม่พบเสียงพูด"));
+                ShowOverlay(o => o.ShowNotice("ไม่พบเสียงพูด"), sequence);
             }
             else
             {
-                ShowError(ex.UserMessageThai);
+                ShowOverlay(o => o.ShowError(ex.UserMessageThai), sequence);
             }
         }
         catch (Exception ex)
         {
             Log.Error("Dictation pipeline failed", ex);
-            ShowError("เกิดข้อผิดพลาดที่ไม่คาดคิด กรุณาดูรายละเอียดใน log");
+            ShowOverlay(
+                o => o.ShowError("เกิดข้อผิดพลาดที่ไม่คาดคิด กรุณาดูรายละเอียดใน log"),
+                sequence);
         }
         finally
         {
@@ -401,7 +461,8 @@ public sealed class DictationController : IDisposable
             settings.ApiTimeoutSeconds);
     }
 
-    private void OnApiRetrying(object? sender, int attempt) => RunOnUi(() => _overlay.ShowRetrying());
+    private void OnApiRetrying(object? sender, int attempt) =>
+        ShowOverlay(o => o.ShowRetrying(), CurrentSequence);
 
     private void OnRecorderError(object? sender, RecorderErrorEventArgs e)
     {
@@ -409,7 +470,7 @@ public sealed class DictationController : IDisposable
 
         if (e.Kind == RecorderErrorKind.DeviceFallback)
         {
-            RunOnUi(() => _overlay.ShowNotice(e.MessageThai));
+            ShowOverlay(o => o.ShowNotice(e.MessageThai), CurrentSequence);
             return;
         }
 
@@ -441,7 +502,43 @@ public sealed class DictationController : IDisposable
         StateChanged?.Invoke(this, next);
     }
 
-    private void ShowError(string messageThai) => RunOnUi(() => _overlay.ShowError(messageThai));
+    private long CurrentSequence
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _dictationSequence;
+            }
+        }
+    }
+
+    private void ShowError(string messageThai) => ShowOverlay(o => o.ShowError(messageThai), CurrentSequence);
+
+    /// <summary>
+    /// Runs an overlay update, unless a newer dictation has taken over the pill in the meantime
+    /// or the user has turned the overlay off.
+    /// </summary>
+    private void ShowOverlay(Action<OverlayViewModel> update, long sequence)
+    {
+        if (!_settings.Current.ShowOverlay)
+        {
+            return;
+        }
+
+        RunOnUi(() =>
+        {
+            lock (_gate)
+            {
+                if (sequence != _dictationSequence)
+                {
+                    return;
+                }
+            }
+
+            update(_overlay);
+        });
+    }
 
     private void RunOnUi(Action action)
     {

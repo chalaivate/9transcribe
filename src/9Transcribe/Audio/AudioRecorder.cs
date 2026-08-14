@@ -371,6 +371,15 @@ public sealed class AudioRecorder : IDisposable
     {
         lock (_gate)
         {
+            if (_state == RecorderState.Stopping && _pending?.Recording is not null)
+            {
+                // A start queued behind the previous session's teardown has already been
+                // superseded by this stop; letting it through would start a recording nobody
+                // is holding a key for, which then runs to the duration cap.
+                _pending = _resumeMonitor is null ? null : new PendingStart(null, _resumeMonitor);
+                return;
+            }
+
             if (_state != RecorderState.Recording)
             {
                 return;

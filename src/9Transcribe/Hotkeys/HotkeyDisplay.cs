@@ -327,11 +327,6 @@ public static class HotkeyDisplay
             return true;
         }
 
-        if (vk >= 0x60 && vk <= 0x6F)
-        {
-            return true;
-        }
-
         return vk is 0xBA or 0xBB or 0xBC or 0xBD or 0xBE or 0xBF
             or 0xC0 or 0xDB or 0xDC or 0xDD or 0xDE or 0xE2;
     }

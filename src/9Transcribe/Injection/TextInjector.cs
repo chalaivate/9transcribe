@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using NineTranscribe.Diagnostics;
 using NineTranscribe.Interop;
 using NineTranscribe.Settings;
@@ -163,8 +164,15 @@ public sealed class TextInjector : IDisposable
 
     private void RunWorker()
     {
-        // A message-only window is a valid clipboard owner and never appears on screen.
-        _clipboard = new ClipboardStrategy(InputNative.HwndMessage);
+        // A real message-only window, not the HWND_MESSAGE sentinel: EmptyClipboard sets the
+        // clipboard owner to whatever window opened it, and a null owner makes the following
+        // SetClipboardData fail.
+        using var owner = new HwndSource(new HwndSourceParameters("9TranscribeClipboardOwner")
+        {
+            ParentWindow = InputNative.HwndMessage,
+            WindowStyle = 0,
+        });
+        _clipboard = new ClipboardStrategy(owner.Handle);
 
         foreach (WorkItem item in _queue.GetConsumingEnumerable())
         {
@@ -199,10 +207,12 @@ public sealed class TextInjector : IDisposable
         {
             // UIPI drops synthetic input aimed at a higher integrity level and reports success,
             // so leave the text on the clipboard and tell the user to paste it themselves.
-            _clipboard?.PlaceOnly(item.Text);
+            bool copied = _clipboard?.PlaceOnly(item.Text) ?? false;
             return new InsertionResult(
                 InsertionOutcome.TargetElevated,
-                "วางข้อความอัตโนมัติไม่ได้ — โปรแกรมปลายทางเปิดแบบผู้ดูแลระบบ ข้อความถูกคัดลอกไว้แล้ว กด Ctrl+V ได้เลย");
+                copied
+                    ? "วางข้อความอัตโนมัติไม่ได้ — โปรแกรมปลายทางเปิดแบบผู้ดูแลระบบ ข้อความถูกคัดลอกไว้แล้ว กด Ctrl+V ได้เลย"
+                    : "วางข้อความอัตโนมัติไม่ได้ — โปรแกรมปลายทางเปิดแบบผู้ดูแลระบบ");
         }
 
         WaitForModifiersToClear();

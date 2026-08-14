@@ -27,12 +27,12 @@ public sealed record ModelCapabilities(
             SupportsPrompt: true,
             SupportsLanguage: true,
             SupportsVerboseJson: false),
-        // whisper-1 only reads the final 224 tokens of the prompt; Thai is token-heavy, so
-        // the character budget is deliberately far below what 224 tokens could hold.
+        // whisper-1 only reads the final 224 tokens of the prompt, and Thai costs roughly a
+        // token per character, so the budget has to be counted in Thai characters, not English.
         new ModelCapabilities(
             "whisper-1",
             "whisper-1 (รุ่นคลาสสิก)",
-            PromptCharBudget: 500,
+            PromptCharBudget: 200,
             SupportsPrompt: true,
             SupportsLanguage: true,
             SupportsVerboseJson: true),

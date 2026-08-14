@@ -191,6 +191,12 @@ public partial class App : Application
             _hotkeys.IsEnabled = enabled;
         }
 
+        if (!enabled)
+        {
+            // Otherwise a toggle-mode recording keeps running with no key left to stop it.
+            _controller?.CancelActive();
+        }
+
         _tray?.SetState(_controller?.State ?? DictationState.Idle);
     }
 

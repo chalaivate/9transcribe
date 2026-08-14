@@ -105,6 +105,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         _hotkeys.CaptureCancelled += OnCaptureCancelled;
         _recorder.LevelChanged += OnLevelChanged;
         _recorder.RecordingCompleted += OnTestRecordingCompleted;
+        _recorder.Error += OnRecorderError;
 
         RefreshDevices();
         UpdateHotkeyWarning();
@@ -324,6 +325,12 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             ThemeChanged?.Invoke(this, value);
             QueueSave();
         }
+    }
+
+    public bool SaveHistoryToDisk
+    {
+        get => _settings.SaveHistoryToDisk;
+        set => Assign(value, _settings.SaveHistoryToDisk, v => _settings.SaveHistoryToDisk = v);
     }
 
     public bool StartWithWindows
@@ -625,6 +632,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         _hotkeys.CaptureCancelled -= OnCaptureCancelled;
         _recorder.LevelChanged -= OnLevelChanged;
         _recorder.RecordingCompleted -= OnTestRecordingCompleted;
+        _recorder.Error -= OnRecorderError;
 
         _saveTimer.Stop();
         _meterTimer.Stop();
@@ -841,9 +849,6 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         StopMonitoring();
         TestTranscript = string.Empty;
         IsTestRecording = true;
-        _testSecondsLeft = 3;
-        TestButtonText = $"กำลังอัด… {_testSecondsLeft}";
-        _testCountdown.Start();
 
         var options = new RecordingOptions(
             _settings.MicDeviceFriendlyName,
@@ -860,7 +865,21 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         {
             Log.Warn($"Test recording could not start: {ex.Message}");
             FinishTestRecording("เริ่มอัดเสียงไม่ได้ กรุณาตรวจสอบไมโครโฟน");
+            return Task.CompletedTask;
         }
+
+        // The recorder swallows a failed device open, and it refuses to start while a dictation
+        // already holds the microphone. Only run the countdown if it really started, or the
+        // countdown would end up stopping somebody else's recording.
+        if (_recorder.State != RecorderState.Recording)
+        {
+            FinishTestRecording("เริ่มอัดเสียงไม่ได้ ไมโครโฟนอาจถูกใช้งานอยู่");
+            return Task.CompletedTask;
+        }
+
+        _testSecondsLeft = 3;
+        TestButtonText = $"กำลังอัด… {_testSecondsLeft}";
+        _testCountdown.Start();
 
         return Task.CompletedTask;
     }
@@ -875,7 +894,37 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         }
 
         _testCountdown.Stop();
-        _recorder.StopRecording(StopReason.UserStopped);
+
+        if (IsTestRecording)
+        {
+            _recorder.StopRecording(StopReason.UserStopped);
+        }
+    }
+
+    private void OnRecorderError(object? sender, RecorderErrorEventArgs e)
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _dispatcher.BeginInvoke(() => OnRecorderError(sender, e));
+            return;
+        }
+
+        if (e.Kind == RecorderErrorKind.DeviceFallback)
+        {
+            StatusText = e.MessageThai;
+            return;
+        }
+
+        // Without this the test button would stay stuck on its countdown forever, because a
+        // failed open never produces a RecordingCompleted.
+        if (IsTestRecording)
+        {
+            FinishTestRecording(e.MessageThai);
+        }
+        else
+        {
+            StatusText = e.MessageThai;
+        }
     }
 
     private void OnTestRecordingCompleted(object? sender, RecordingCompletedEventArgs e)
