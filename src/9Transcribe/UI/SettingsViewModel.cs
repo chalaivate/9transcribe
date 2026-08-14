@@ -310,6 +310,33 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
+    public bool SegmentOnPause
+    {
+        get => _settings.SegmentOnPause;
+        set => Assign(value, _settings.SegmentOnPause, v => _settings.SegmentOnPause = v);
+    }
+
+    public int IdleStopSeconds
+    {
+        get => _settings.IdleStopSeconds;
+        set
+        {
+            if (_settings.IdleStopSeconds == value)
+            {
+                return;
+            }
+
+            _settings.IdleStopSeconds = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IdleStopText));
+            QueueSave();
+        }
+    }
+
+    public string IdleStopText => _settings.IdleStopSeconds <= 0
+        ? "ปิด"
+        : $"{_settings.IdleStopSeconds} วิ";
+
     public AppTheme Theme
     {
         get => _settings.Theme;

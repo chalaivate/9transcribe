@@ -22,6 +22,9 @@ public enum StopReason
     HotkeyReleased,
     SilenceDetected,
     MaxDurationReached,
+
+    /// <summary>Nothing was said for long enough that the session was assumed to be forgotten.</summary>
+    IdleTimeout,
     DeviceLost,
     Cancelled,
 }
@@ -55,6 +58,24 @@ public enum RecorderErrorKind
 public sealed record AudioDeviceInfo(string FriendlyName, int WaveInIndex, bool IsDefault);
 
 /// <summary>Level of one 30 ms frame. Raised on the capture thread ~33 times a second.</summary>
+/// <summary>One sentence cut loose from a session that is still recording.</summary>
+public sealed class SegmentReadyEventArgs : EventArgs
+{
+    public SegmentReadyEventArgs(byte[] wavBytes, TimeSpan duration, int index)
+    {
+        WavBytes = wavBytes;
+        Duration = duration;
+        Index = index;
+    }
+
+    public byte[] WavBytes { get; }
+
+    public TimeSpan Duration { get; }
+
+    /// <summary>Position in the session, counted from zero, so the caller can keep them in order.</summary>
+    public int Index { get; }
+}
+
 public sealed class LevelEventArgs : EventArgs
 {
     public LevelEventArgs(
@@ -88,12 +109,18 @@ public sealed class LevelEventArgs : EventArgs
 
 public sealed class RecordingCompletedEventArgs : EventArgs
 {
-    public RecordingCompletedEventArgs(byte[] wavBytes, TimeSpan duration, StopReason reason, bool hasSpeech)
+    public RecordingCompletedEventArgs(
+        byte[] wavBytes,
+        TimeSpan duration,
+        StopReason reason,
+        bool hasSpeech,
+        int segmentCount = 0)
     {
         WavBytes = wavBytes;
         Duration = duration;
         Reason = reason;
         HasSpeech = hasSpeech;
+        SegmentCount = segmentCount;
     }
 
     /// <summary>A complete WAV file, or empty when <see cref="HasSpeech"/> is false.</summary>
@@ -106,6 +133,12 @@ public sealed class RecordingCompletedEventArgs : EventArgs
 
     /// <summary>False when nothing worth transcribing was heard; the caller must not call the API.</summary>
     public bool HasSpeech { get; }
+
+    /// <summary>
+    /// Sentences already handed over during the session. When this is non-zero the payload is
+    /// only the tail, and an empty one means the session simply ended on a pause.
+    /// </summary>
+    public int SegmentCount { get; }
 }
 
 public sealed class RecorderErrorEventArgs : EventArgs
@@ -125,12 +158,22 @@ public sealed class RecorderErrorEventArgs : EventArgs
 /// One recording session's configuration. A null <c>DeviceFriendlyName</c> means "whatever
 /// Windows currently calls the default capture device".
 /// </summary>
+/// <param name="SegmentOnSilence">
+/// Cut each sentence loose at the pause that follows it and hand it over straight away, instead
+/// of holding the whole session back until the user stops. Recording continues across the cut.
+/// </param>
+/// <param name="IdleStopSeconds">
+/// Stop by itself after this much unbroken silence, so a session left running by accident does
+/// not hold the microphone forever. Zero disables it.
+/// </param>
 public sealed record RecordingOptions(
     string? DeviceFriendlyName,
     bool AutoStopOnSilence,
     VadSettings Vad,
     int MaxDurationSeconds = 600,
-    int MinUtteranceMs = 300);
+    int MinUtteranceMs = 300,
+    bool SegmentOnSilence = false,
+    int IdleStopSeconds = 0);
 
 /// <summary>
 /// The single owner of the microphone. Capture runs through WinMM (<see cref="WaveInEvent"/>)
@@ -174,6 +217,15 @@ public sealed class AudioRecorder : IDisposable
     private string? _activeDeviceName;
     private long _capturedBytes;
     private long _maxBytes;
+
+    /// <summary>
+    /// How much of the capture buffer has already been handed over as a segment. Everything the
+    /// recorder reports afterwards starts here, so the tail is never transcribed twice.
+    /// </summary>
+    private int _segmentConsumed;
+    private int _segmentIndex;
+    private long _silentBytes;
+    private long _idleStopBytes;
     private bool _speechRaised;
     private bool _cancelled;
     private bool _finalizeAsRecording;
@@ -212,6 +264,12 @@ public sealed class AudioRecorder : IDisposable
     public event EventHandler<RecordingCompletedEventArgs>? RecordingCompleted;
 
     public event EventHandler<RecorderErrorEventArgs>? Error;
+
+    /// <summary>
+    /// A sentence is ready while recording continues. Raised on the capture thread like the
+    /// others, so subscribers marshal for themselves.
+    /// </summary>
+    public event EventHandler<SegmentReadyEventArgs>? SegmentReady;
 
     /// <summary>
     /// Active capture endpoints, newest device list each call. The list holds real devices only:
@@ -477,6 +535,7 @@ public sealed class AudioRecorder : IDisposable
 
         LevelEventArgs level;
         bool speechStarted = false;
+        SegmentReadyEventArgs? segment = null;
 
         lock (_gate)
         {
@@ -512,10 +571,24 @@ public sealed class AudioRecorder : IDisposable
 
             if (_state == RecorderState.Recording && _options is not null)
             {
-                if (_capturedBytes >= _maxBytes)
+                TrackIdleLocked(frame, count);
+
+                if (_options.SegmentOnSilence && frame.UtteranceEnded)
+                {
+                    segment = CutSegmentLocked();
+                }
+
+                // Measured against the part not yet handed over, so a segmented session can run
+                // for as long as the user keeps talking while each upload stays a sane size.
+                if (_capturedBytes - _segmentConsumed >= _maxBytes)
                 {
                     Log.Info("Recording hit the maximum duration");
                     RequestStopLocked(StopReason.MaxDurationReached);
+                }
+                else if (_idleStopBytes > 0 && _silentBytes >= _idleStopBytes)
+                {
+                    Log.Info("Recording stopped after a long silence");
+                    RequestStopLocked(StopReason.IdleTimeout);
                 }
                 else if (_options.AutoStopOnSilence && _vad.HasSpeech && frame.SilenceTimeoutReached)
                 {
@@ -531,6 +604,70 @@ public sealed class AudioRecorder : IDisposable
         {
             SpeechDetected?.Invoke(this, EventArgs.Empty);
         }
+
+        if (segment is not null)
+        {
+            SegmentReady?.Invoke(this, segment);
+        }
+    }
+
+    /// <summary>
+    /// Counts unbroken silence so a forgotten session can stop itself. Any speech resets it.
+    /// </summary>
+    private void TrackIdleLocked(VadFrameResult frame, int count)
+    {
+        if (frame.IsSpeech)
+        {
+            _silentBytes = 0;
+        }
+        else
+        {
+            _silentBytes += count;
+        }
+    }
+
+    /// <summary>
+    /// Copies the sentence that just ended out of the capture buffer and marks it consumed.
+    /// Runs on the capture thread under the lock, so it stays a memcpy — the event itself is
+    /// raised by the caller once the lock is gone.
+    /// </summary>
+    private SegmentReadyEventArgs? CutSegmentLocked()
+    {
+        if (_capture is null || _vad is null || _options is null)
+        {
+            return null;
+        }
+
+        if (_vad.UtteranceStartByteOffset < 0 || _vad.UtteranceEndByteOffset < 0)
+        {
+            return null;
+        }
+
+        int length = (int)_capture.Length;
+        int pad = WavUtil.BytesForMilliseconds(TrimPadMs);
+        int start = (int)Math.Clamp(_vad.UtteranceStartByteOffset - pad, _segmentConsumed, length);
+        int end = (int)Math.Clamp(_vad.UtteranceEndByteOffset + pad, start, length);
+        start -= start % WavUtil.BlockAlign;
+        end -= end % WavUtil.BlockAlign;
+
+        int kept = Math.Max(0, end - start);
+        int minBytes = Math.Max(WavUtil.BlockAlign, WavUtil.BytesForMilliseconds(_options.MinUtteranceMs));
+
+        // Consume up to the end of the utterance either way: a fragment too short to be worth
+        // sending must not be left behind to reappear in the next segment or in the tail.
+        _segmentConsumed = end;
+        _vad.BeginUtterance();
+
+        if (kept < minBytes)
+        {
+            Log.Info($"Segment skipped: {kept} bytes is below the minimum utterance");
+            return null;
+        }
+
+        byte[] wav = WavUtil.CreateWav(_capture.GetBuffer().AsSpan(start, kept));
+        var duration = TimeSpan.FromSeconds(kept / (double)WavUtil.BytesPerSecond);
+        Log.Info($"Segment {_segmentIndex} ready: {kept} bytes");
+        return new SegmentReadyEventArgs(wav, duration, _segmentIndex++);
     }
 
     /// <summary>
@@ -617,38 +754,55 @@ public sealed class AudioRecorder : IDisposable
         }
     }
 
+    /// <summary>
+    /// Builds the result for the session. In a segmented session this is only the tail — whatever
+    /// was said after the last sentence was handed over — because everything before it has already
+    /// been transcribed and typed.
+    /// </summary>
     private RecordingCompletedEventArgs BuildCompletionLocked(StopReason reason)
     {
         int length = _capture is null ? 0 : (int)_capture.Length;
-        var duration = TimeSpan.FromSeconds(length / (double)WavUtil.BytesPerSecond);
+        int available = Math.Max(0, length - _segmentConsumed);
+        var duration = TimeSpan.FromSeconds(available / (double)WavUtil.BytesPerSecond);
         int minBytes = Math.Max(WavUtil.BlockAlign, WavUtil.BytesForMilliseconds(_options?.MinUtteranceMs ?? 300));
 
-        if (_capture is null || _vad is null || !_vad.HasSpeech || length < minBytes)
+        // A segmented session that ends on a pause has an empty tail, which is the normal way to
+        // finish rather than a failure — the caller distinguishes them by the segment count.
+        bool tailHasSpeech = _vad is not null
+            && (_segmentConsumed > 0 ? _vad.UtteranceStartByteOffset >= 0 : _vad.HasSpeech);
+
+        if (_capture is null || _vad is null || !tailHasSpeech || available < minBytes)
         {
-            Log.Info($"Recording discarded: {length} bytes, no usable speech, reason={reason}");
-            return new RecordingCompletedEventArgs(Array.Empty<byte>(), duration, reason, false);
+            Log.Info($"Recording tail discarded: {available} bytes, no usable speech, reason={reason}");
+            return new RecordingCompletedEventArgs(
+                Array.Empty<byte>(), duration, reason, false, _segmentIndex);
         }
 
         (int start, int kept) = SpeechRange(length, _vad);
         byte[] wav = WavUtil.CreateWav(_capture.GetBuffer().AsSpan(start, kept));
         Log.Info($"Recording finished: {length} bytes captured, {kept} bytes kept, reason={reason}");
-        return new RecordingCompletedEventArgs(wav, duration, reason, true);
+        return new RecordingCompletedEventArgs(wav, duration, reason, true, _segmentIndex);
     }
 
     /// <summary>
     /// Pads the detected speech by 200 ms on both sides. Cutting the trailing silence matters as
     /// much as keeping the onset: the model invents text when it is handed a long quiet tail.
     /// </summary>
-    private static (int Start, int Length) SpeechRange(int pcmLength, VadMonitor vad)
+    private (int Start, int Length) SpeechRange(int pcmLength, VadMonitor vad)
     {
-        if (vad.FirstSpeechByteOffset < 0 || vad.LastSpeechByteOffset < 0)
+        // In a segmented session the tail's own onset is what matters; the session-wide first
+        // offset points at a sentence that was handed over long ago.
+        long first = _segmentConsumed > 0 ? vad.UtteranceStartByteOffset : vad.FirstSpeechByteOffset;
+        long last = _segmentConsumed > 0 ? vad.UtteranceEndByteOffset : vad.LastSpeechByteOffset;
+
+        if (first < 0 || last < 0)
         {
-            return (0, pcmLength);
+            return (_segmentConsumed, Math.Max(0, pcmLength - _segmentConsumed));
         }
 
         int pad = WavUtil.BytesForMilliseconds(TrimPadMs);
-        int start = (int)Math.Clamp(vad.FirstSpeechByteOffset - pad, 0, pcmLength);
-        int end = (int)Math.Clamp(vad.LastSpeechByteOffset + pad, start, pcmLength);
+        int start = (int)Math.Clamp(first - pad, _segmentConsumed, pcmLength);
+        int end = (int)Math.Clamp(last + pad, start, pcmLength);
         start -= start % WavUtil.BlockAlign;
         end -= end % WavUtil.BlockAlign;
         return (start, Math.Max(0, end - start));
@@ -722,11 +876,17 @@ public sealed class AudioRecorder : IDisposable
         _vad = new VadMonitor(options.Vad);
         _capture = new MemoryStream(InitialCaptureCapacity);
         _capturedBytes = 0;
+        _segmentConsumed = 0;
+        _segmentIndex = 0;
+        _silentBytes = 0;
         _speechRaised = false;
         _cancelled = false;
         _stopReason = StopReason.UserStopped;
         _finalizeAsRecording = false;
         _maxBytes = (long)Math.Clamp(options.MaxDurationSeconds, 5, 720) * WavUtil.BytesPerSecond;
+        _idleStopBytes = options.IdleStopSeconds <= 0
+            ? 0
+            : (long)options.IdleStopSeconds * WavUtil.BytesPerSecond;
     }
 
     private void RequestStopLocked(StopReason reason)
@@ -773,6 +933,10 @@ public sealed class AudioRecorder : IDisposable
         _activeDeviceName = null;
         _capturedBytes = 0;
         _maxBytes = 0;
+        _segmentConsumed = 0;
+        _segmentIndex = 0;
+        _silentBytes = 0;
+        _idleStopBytes = 0;
         _speechRaised = false;
         _cancelled = false;
         _finalizeAsRecording = false;

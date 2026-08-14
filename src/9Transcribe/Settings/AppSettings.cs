@@ -61,6 +61,15 @@ public sealed class AppSettings
 
     public int MinUtteranceMs { get; set; } = 300;
 
+    /// <summary>
+    /// Type each sentence as soon as the speaker pauses, instead of waiting for the whole session
+    /// to end. The pause that counts as a sentence break is <see cref="VadSettings.HangoverMs"/>.
+    /// </summary>
+    public bool SegmentOnPause { get; set; } = true;
+
+    /// <summary>Stops a session nobody is talking into. Zero disables it.</summary>
+    public int IdleStopSeconds { get; set; } = 60;
+
     public int MaxRecordingSeconds { get; set; } = 600;
 
     public int ApiTimeoutSeconds { get; set; } = 30;
@@ -102,6 +111,8 @@ public sealed class AppSettings
             ShowOverlay = ShowOverlay,
             Vad = Vad.Clone(),
             MinUtteranceMs = MinUtteranceMs,
+            SegmentOnPause = SegmentOnPause,
+            IdleStopSeconds = IdleStopSeconds,
             MaxRecordingSeconds = MaxRecordingSeconds,
             ApiTimeoutSeconds = ApiTimeoutSeconds,
             Theme = Theme,
@@ -133,6 +144,7 @@ public sealed class AppSettings
         ClipboardRestoreDelayMs = Math.Clamp(ClipboardRestoreDelayMs, 0, 5000);
         TypingIntervalMs = Math.Clamp(TypingIntervalMs, 0, 50);
         MinUtteranceMs = Math.Clamp(MinUtteranceMs, 100, 2000);
+        IdleStopSeconds = IdleStopSeconds <= 0 ? 0 : Math.Clamp(IdleStopSeconds, 10, 600);
         // 720 s of 16 kHz mono PCM is ~23 MB, just inside the API's 25 MB limit.
         MaxRecordingSeconds = Math.Clamp(MaxRecordingSeconds, 5, 720);
         ApiTimeoutSeconds = Math.Clamp(ApiTimeoutSeconds, 5, 300);

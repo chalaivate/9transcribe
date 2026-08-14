@@ -132,6 +132,23 @@ public sealed class OverlayViewModel : ObservableObject
         StartTimer(hold);
     }
 
+    /// <summary>
+    /// Shows a sentence that has just been typed while the session keeps running. Unlike
+    /// <see cref="ShowPreview"/> this stays in the listening state, so the level bars keep
+    /// moving and no auto-hide timer takes the pill away mid-session.
+    /// </summary>
+    public void ShowSegment(string text)
+    {
+        if (State != OverlayState.Listening)
+        {
+            return;
+        }
+
+        _timer.Stop();
+        PreviewText = TranscriptPostProcessor.ForPreview(text.Trim());
+        ContentChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     public void ShowError(string thaiMessage)
     {
         _timer.Stop();

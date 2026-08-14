@@ -165,7 +165,11 @@
 
             <Border Style="{StaticResource SectionCard}">
               <StackPanel>
-                <TextBlock Text="การหยุดอัตโนมัติ (โหมดกดสลับ)" FontWeight="SemiBold" />
+                <TextBlock Text="การพิมพ์ทีละประโยค" FontWeight="SemiBold" />
+
+                <CheckBox Content="พูดจบประโยคแล้วเว้นจังหวะ ให้พิมพ์ประโยคนั้นทันทีแล้วอัดต่อ"
+                          Margin="0,10,0,0"
+                          IsChecked="{Binding SegmentOnPause, Mode=TwoWay}" />
 
                 <Grid Margin="0,10,0,0">
                   <Grid.ColumnDefinitions>
@@ -186,15 +190,28 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="70" />
                   </Grid.ColumnDefinitions>
-                  <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="หยุดหลังเงียบ" />
+                  <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="เว้นจังหวะนานเท่าไหร่ถือว่าจบประโยค" />
                   <Slider Grid.Column="1" Minimum="0.5" Maximum="3.0" TickFrequency="0.1" IsSnapToTickEnabled="True"
                           VerticalAlignment="Center" Value="{Binding VadHangoverSeconds, Mode=TwoWay}" />
                   <TextBlock Grid.Column="2" HorizontalAlignment="Right"
                              Text="{Binding VadHangoverSeconds, StringFormat={}{0:0.0} วิ}" />
                 </Grid>
 
+                <Grid Margin="0,8,0,0">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="70" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="หยุดเองเมื่อเงียบนาน" />
+                  <Slider Grid.Column="1" Minimum="0" Maximum="300" TickFrequency="10" IsSnapToTickEnabled="True"
+                          VerticalAlignment="Center" Value="{Binding IdleStopSeconds, Mode=TwoWay}" />
+                  <TextBlock Grid.Column="2" HorizontalAlignment="Right"
+                             Text="{Binding IdleStopText}" />
+                </Grid>
+
                 <TextBlock Style="{StaticResource Hint}"
-                           Text="ภาษาไทยมีการเว้นจังหวะระหว่างวลีบ่อย ค่าประมาณ 1.2 วินาทีจะไม่ตัดกลางประโยค" />
+                           Text="ภาษาไทยมีการเว้นจังหวะระหว่างวลีบ่อย ค่าประมาณ 1.2 วินาทีจะไม่ตัดกลางประโยค • โหมดกดสลับจะหยุดเมื่อกดปุ่มอีกครั้งเท่านั้น ยกเว้นเงียบนานเกินค่าด้านบน (ตั้งเป็น 0 เพื่อปิด)" />
               </StackPanel>
             </Border>
 

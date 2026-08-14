@@ -8,11 +8,17 @@ namespace NineTranscribe.Audio;
 /// <param name="PeakDbfs">Highest absolute sample of the frame, floored at -90.</param>
 /// <param name="IsSpeech">Whether the detector is currently inside an utterance.</param>
 /// <param name="SilenceTimeoutReached">Whether the hangover has elapsed since the last speech.</param>
+/// <param name="UtteranceEnded">
+/// True on the single frame where an utterance just ended. Unlike the latching
+/// <paramref name="SilenceTimeoutReached"/>, this is an edge, so a caller can act once per
+/// sentence and keep recording through the pauses.
+/// </param>
 public readonly record struct VadFrameResult(
     double RmsDbfs,
     double PeakDbfs,
     bool IsSpeech,
-    bool SilenceTimeoutReached);
+    bool SilenceTimeoutReached,
+    bool UtteranceEnded);
 
 /// <summary>
 /// Adaptive RMS voice-activity detector. Pure arithmetic over PCM bytes with no audio APIs,
@@ -55,6 +61,7 @@ public sealed class VadMonitor
 
     private int _partialCount;
     private long _framesProcessed;
+    private bool _utteranceEnded;
     private int _aboveEnterFrames;
     private int _silenceFrames;
     private bool _inSpeech;
@@ -97,12 +104,20 @@ public sealed class VadMonitor
     /// <summary>Latches once the hangover has elapsed after an utterance; cleared only by <see cref="Reset"/>.</summary>
     public bool SilenceTimeoutReached { get; private set; }
 
+    /// <summary>Offset of the first frame of the utterance in progress; -1 between utterances.</summary>
+    public long UtteranceStartByteOffset { get; private set; } = -1;
+
+    /// <summary>Offset just past the last speech frame of the utterance in progress; -1 between them.</summary>
+    public long UtteranceEndByteOffset { get; private set; } = -1;
+
     /// <summary>
     /// Feeds one capture buffer. Bytes that do not fill a whole frame are carried over to the
     /// next call, so the byte offsets stay aligned to the stream the caller is accumulating.
     /// </summary>
     public VadFrameResult Process(ReadOnlySpan<byte> pcm16)
     {
+        _utteranceEnded = false;
+
         int consumed = 0;
         while (consumed < pcm16.Length)
         {
@@ -118,7 +133,27 @@ public sealed class VadMonitor
             }
         }
 
-        return new VadFrameResult(CurrentRmsDbfs, _peakDbfs, _inSpeech, SilenceTimeoutReached);
+        return new VadFrameResult(
+            CurrentRmsDbfs,
+            _peakDbfs,
+            _inSpeech,
+            SilenceTimeoutReached,
+            _utteranceEnded);
+    }
+
+    /// <summary>
+    /// Starts a fresh utterance after the caller has consumed the previous one, keeping the
+    /// frame counter so byte offsets stay aligned with the caller's stream, and keeping the
+    /// noise floor learned from the room so far. <see cref="Reset"/> would discard both.
+    /// </summary>
+    public void BeginUtterance()
+    {
+        _aboveEnterFrames = 0;
+        _silenceFrames = 0;
+        _inSpeech = false;
+        _utteranceEnded = false;
+        UtteranceStartByteOffset = -1;
+        UtteranceEndByteOffset = -1;
     }
 
     public void Reset()
@@ -128,6 +163,7 @@ public sealed class VadMonitor
         _aboveEnterFrames = 0;
         _silenceFrames = 0;
         _inSpeech = false;
+        _utteranceEnded = false;
         _noiseFloorDbfs = SeedNoiseFloorDbfs;
         _peakDbfs = MinDbfs;
         CurrentRmsDbfs = MinDbfs;
@@ -135,6 +171,8 @@ public sealed class VadMonitor
         SilenceTimeoutReached = false;
         FirstSpeechByteOffset = -1;
         LastSpeechByteOffset = -1;
+        UtteranceStartByteOffset = -1;
+        UtteranceEndByteOffset = -1;
     }
 
     private void ProcessFrame(ReadOnlySpan<byte> frame)
@@ -159,10 +197,15 @@ public sealed class VadMonitor
             {
                 _inSpeech = true;
                 HasSpeech = true;
+                long onset = Math.Max(0, frameStart - ((SpeechDebounceFrames - 1) * (long)_frameBytes));
                 if (FirstSpeechByteOffset < 0)
                 {
-                    long onset = frameStart - ((SpeechDebounceFrames - 1) * (long)_frameBytes);
-                    FirstSpeechByteOffset = Math.Max(0, onset);
+                    FirstSpeechByteOffset = onset;
+                }
+
+                if (UtteranceStartByteOffset < 0)
+                {
+                    UtteranceStartByteOffset = onset;
                 }
             }
         }
@@ -180,6 +223,7 @@ public sealed class VadMonitor
         {
             _silenceFrames = 0;
             LastSpeechByteOffset = frameStart + _frameBytes;
+            UtteranceEndByteOffset = LastSpeechByteOffset;
             return;
         }
 
@@ -189,6 +233,7 @@ public sealed class VadMonitor
             _inSpeech = false;
             _silenceFrames = 0;
             SilenceTimeoutReached = true;
+            _utteranceEnded = true;
         }
     }
 

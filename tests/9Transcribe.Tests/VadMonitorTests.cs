@@ -167,6 +167,69 @@ public sealed class VadMonitorTests
         return pcm;
     }
 
+    [Fact]
+    public void Process_TwoSentences_ReportsEachEndingSeparately()
+    {
+        var monitor = new VadMonitor(new VadSettings { HangoverMs = 300 });
+
+        monitor.Process(Silence(10));
+        monitor.Process(Tone(20, -20));
+        VadFrameResult first = monitor.Process(Silence(20));
+
+        Assert.True(first.UtteranceEnded);
+        long firstStart = monitor.UtteranceStartByteOffset;
+        long firstEnd = monitor.UtteranceEndByteOffset;
+        Assert.True(firstEnd > firstStart);
+
+        // What the recorder does once it has cut the first sentence loose.
+        monitor.BeginUtterance();
+        Assert.False(monitor.UtteranceStartByteOffset >= 0);
+
+        monitor.Process(Tone(20, -20));
+        VadFrameResult second = monitor.Process(Silence(20));
+
+        Assert.True(second.UtteranceEnded);
+
+        // The second sentence must live entirely after the first, or the recorder would either
+        // send the same audio twice or lose the gap between them.
+        Assert.True(monitor.UtteranceStartByteOffset >= firstEnd);
+        Assert.True(monitor.UtteranceEndByteOffset > monitor.UtteranceStartByteOffset);
+    }
+
+    [Fact]
+    public void Process_UtteranceEnded_IsAnEdgeNotALatch()
+    {
+        var monitor = new VadMonitor(new VadSettings { HangoverMs = 300 });
+
+        monitor.Process(Silence(10));
+        monitor.Process(Tone(20, -20));
+
+        Assert.True(monitor.Process(Silence(20)).UtteranceEnded);
+        Assert.False(monitor.Process(Silence(20)).UtteranceEnded);
+    }
+
+    [Fact]
+    public void BeginUtterance_KeepsTheLearnedNoiseFloorAndOffsetAlignment()
+    {
+        var monitor = new VadMonitor(new VadSettings { HangoverMs = 300 });
+
+        monitor.Process(Tone(40, -45));
+        double floorBefore = monitor.NoiseFloorDbfs;
+        monitor.Process(Tone(20, -20));
+        monitor.Process(Silence(20));
+
+        long consumed = monitor.UtteranceEndByteOffset;
+        monitor.BeginUtterance();
+
+        Assert.Equal(floorBefore, monitor.NoiseFloorDbfs, 3);
+
+        monitor.Process(Tone(20, -20));
+        monitor.Process(Silence(20));
+
+        // Offsets stay absolute, so they still line up with the recorder's capture buffer.
+        Assert.True(monitor.UtteranceStartByteOffset >= consumed);
+    }
+
     private static byte[] Concat(params byte[][] parts)
     {
         byte[] result = new byte[parts.Sum(part => part.Length)];

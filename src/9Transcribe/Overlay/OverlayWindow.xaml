@@ -63,8 +63,14 @@
           <Rectangle x:Name="Bar5" Style="{StaticResource LevelBar}" Height="4" />
         </StackPanel>
 
-        <TextBlock x:Name="ListeningText" Margin="14,0,0,0" FontSize="14"
-                   Foreground="{StaticResource PillForeground}" VerticalAlignment="Center" />
+        <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+          <TextBlock x:Name="ListeningText" FontSize="14"
+                     Foreground="{StaticResource PillForeground}" />
+          <!-- The sentence just typed, kept on one dim line so the pill stays a pill. -->
+          <TextBlock x:Name="ListeningSegmentText" FontSize="13" MaxWidth="420"
+                     Margin="0,2,0,0" Opacity="0.65" TextTrimming="CharacterEllipsis"
+                     Foreground="{StaticResource PillForeground}" Visibility="Collapsed" />
+        </StackPanel>
       </StackPanel>
 
       <!-- Processing -->

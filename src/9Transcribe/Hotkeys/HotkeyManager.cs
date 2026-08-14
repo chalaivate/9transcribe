@@ -256,7 +256,8 @@ public sealed class HotkeyManager : IDisposable
         }
     }
 
-    private bool Handle(KeyEventData e)
+    /// <summary>Internal so the state machine can be driven directly by tests, without a hook.</summary>
+    internal bool Handle(KeyEventData e)
     {
         ushort vk = e.Vk;
         UpdateModifierState(vk, e.IsUp);
@@ -408,7 +409,8 @@ public sealed class HotkeyManager : IDisposable
     /// Ends a hold that the user has not let go of, latching until a real key-up arrives so the
     /// key's auto-repeat cannot immediately start another one.
     /// </summary>
-    private void ForceReleasePush()
+    /// <summary>Internal so a test can reproduce the releases that used to restart the hold.</summary>
+    internal void ForceReleasePush()
     {
         _awaitingRealKeyUp = true;
         _awaitedVk = _pushVk;
@@ -685,6 +687,21 @@ public sealed class HotkeyManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Takes the signals queued so far. Internal for tests, which drive the state machine
+    /// directly and so never start the worker that would normally drain them.
+    /// </summary>
+    internal IReadOnlyList<HotkeySignal> DrainSignals()
+    {
+        var drained = new List<HotkeySignal>();
+        while (_events.Reader.TryRead(out QueuedEvent item))
+        {
+            drained.Add(item.Signal);
+        }
+
+        return drained;
+    }
+
     private void Publish(QueuedEvent item)
     {
         if (!_events.Writer.TryWrite(item))
@@ -786,7 +803,7 @@ public sealed class HotkeyManager : IDisposable
         return text;
     }
 
-    private enum HotkeySignal
+    internal enum HotkeySignal
     {
         PushPressed,
         PushReleased,

@@ -120,6 +120,10 @@ public partial class OverlayWindow : Window
         {
             case OverlayState.Listening:
                 ListeningText.Text = _viewModel.StatusText;
+                ListeningSegmentText.Text = _viewModel.PreviewText;
+                ListeningSegmentText.Visibility = _viewModel.PreviewText.Length == 0
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
                 ListeningPanel.Visibility = Visibility.Visible;
                 Pill.Background = (Brush)Resources["PillBackground"];
                 _pulse.Begin(this, true);

@@ -45,6 +45,16 @@ public sealed class DictationController : IDisposable
     private int _pipelinesRunning;
     private long _dictationSequence;
 
+    /// <summary>Sentences typed so far in this session; decides whether a separator is needed.</summary>
+    private int _segmentsTyped;
+
+    /// <summary>
+    /// Tail of the typing queue. Each piece of a session takes the current tail as its
+    /// predecessor and leaves its own completion in its place, which keeps the sentences in
+    /// spoken order even though they are transcribed concurrently.
+    /// </summary>
+    private Task _insertionChain = Task.CompletedTask;
+
     public DictationController(
         SettingsStore settings,
         AudioRecorder recorder,
@@ -89,6 +99,7 @@ public sealed class DictationController : IDisposable
         _hotkeys.PhysicalKeyPressed += OnPhysicalKeyPressed;
 
         _recorder.RecordingCompleted += OnRecordingCompleted;
+        _recorder.SegmentReady += OnSegmentReady;
         _recorder.Error += OnRecorderError;
         _recorder.LevelChanged += OnLevelChanged;
 
@@ -138,6 +149,7 @@ public sealed class DictationController : IDisposable
         _hotkeys.PhysicalKeyPressed -= OnPhysicalKeyPressed;
 
         _recorder.RecordingCompleted -= OnRecordingCompleted;
+        _recorder.SegmentReady -= OnSegmentReady;
         _recorder.Error -= OnRecorderError;
         _recorder.LevelChanged -= OnLevelChanged;
 
@@ -227,6 +239,7 @@ public sealed class DictationController : IDisposable
             _recordingActive = true;
             _startedByToggle = toggleMode;
             _dictationSequence++;
+            _segmentsTyped = 0;
         }
 
         AppSettings settings = _settings.Current;
@@ -243,10 +256,14 @@ public sealed class DictationController : IDisposable
 
         var options = new RecordingOptions(
             settings.MicDeviceFriendlyName,
-            AutoStopOnSilence: toggleMode,
+            // A pause now ends a sentence, not the session: the user asked for the session to
+            // end when they press the key, and only when they press the key.
+            AutoStopOnSilence: false,
             settings.Vad,
             settings.MaxRecordingSeconds,
-            settings.MinUtteranceMs);
+            settings.MinUtteranceMs,
+            SegmentOnSilence: settings.SegmentOnPause,
+            IdleStopSeconds: toggleMode ? settings.IdleStopSeconds : 0);
 
         StartOutcome outcome;
         try
@@ -316,6 +333,41 @@ public sealed class DictationController : IDisposable
         RunOnUi(() => _overlay.HideNow());
     }
 
+    /// <summary>
+    /// A sentence finished while the user keeps talking. Everything the completion handler does
+    /// to wind the session down is deliberately absent here: the recording is still running.
+    /// </summary>
+    private void OnSegmentReady(object? sender, SegmentReadyEventArgs e)
+    {
+        long sequence;
+        lock (_gate)
+        {
+            // Same guard as the completion path: the settings window's microphone test shares
+            // this recorder, and its audio must never be typed into the user's document.
+            if (!_recordingActive)
+            {
+                return;
+            }
+
+            _pipelinesRunning++;
+            sequence = _dictationSequence;
+        }
+
+        RefreshState();
+
+        // Claim this segment's place in the queue now, while the order is still known. The
+        // pipelines run concurrently and a short sentence overtakes a long one, so without this
+        // the sentences would be typed in whichever order the API happened to answer.
+        var mine = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task previous = Interlocked.Exchange(ref _insertionChain, mine.Task);
+
+        _ = Task.Run(
+            () => RunPipelineAsync(
+                new PipelineInput(e.WavBytes, sequence, previous, mine, IsSegment: true),
+                _shutdown.Token),
+            CancellationToken.None);
+    }
+
     private void OnLevelChanged(object? sender, LevelEventArgs e)
     {
         lock (_gate)
@@ -356,40 +408,68 @@ public sealed class DictationController : IDisposable
         if (!e.HasSpeech || e.WavBytes.Length == 0)
         {
             RefreshState();
-            ShowOverlay(o => o.ShowNotice("ไม่พบเสียงพูด"), CurrentSequence);
-            return;
-        }
 
-        lock (_gate)
-        {
-            _pipelinesRunning++;
+            // A segmented session that ends just after a pause has an empty tail, and everything
+            // said has already been typed — that is a normal finish, not a failed dictation.
+            if (e.SegmentCount == 0)
+            {
+                ShowOverlay(o => o.ShowNotice("ไม่พบเสียงพูด"), CurrentSequence);
+            }
+            else if (e.Reason == StopReason.IdleTimeout)
+            {
+                ShowOverlay(o => o.ShowNotice("หยุดอัตโนมัติเพราะไม่มีเสียงพูด"), CurrentSequence);
+            }
+            else
+            {
+                ShowOverlay(o => o.HideNow(), CurrentSequence);
+            }
+
+            return;
         }
 
         long sequence;
         lock (_gate)
         {
+            _pipelinesRunning++;
             sequence = _dictationSequence;
         }
 
         RefreshState();
         ShowOverlay(o => o.ShowProcessing(), sequence);
 
+        // The tail queues behind the sentences already handed over during the session, so it is
+        // typed last however quickly it comes back.
+        var mine = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task previous = Interlocked.Exchange(ref _insertionChain, mine.Task);
+
         // Deliberately not cancelling any pipeline already in flight: chaining a second
         // dictation while the first is still uploading must not throw the first one away.
-        _ = Task.Run(() => RunPipelineAsync(e, sequence, _shutdown.Token), CancellationToken.None);
+        _ = Task.Run(
+            () => RunPipelineAsync(
+                new PipelineInput(e.WavBytes, sequence, previous, mine, IsSegment: false),
+                _shutdown.Token),
+            CancellationToken.None);
     }
 
-    private async Task RunPipelineAsync(
-        RecordingCompletedEventArgs recording,
-        long sequence,
-        CancellationToken cancellationToken)
+    /// <summary>One unit of work through the pipeline, and its place in the typing queue.</summary>
+    /// <param name="Predecessor">Completes when the previous piece of this session has been typed.</param>
+    /// <param name="Completion">Signals the next piece that its turn has come.</param>
+    private readonly record struct PipelineInput(
+        byte[] WavBytes,
+        long Sequence,
+        Task Predecessor,
+        TaskCompletionSource Completion,
+        bool IsSegment);
+
+    private async Task RunPipelineAsync(PipelineInput input, CancellationToken cancellationToken)
     {
         AppSettings settings = _settings.Current;
+        long sequence = input.Sequence;
 
         try
         {
             TranscriptionResult result = await _api
-                .TranscribeAsync(recording.WavBytes, BuildRequestOptions(settings), cancellationToken)
+                .TranscribeAsync(input.WavBytes, BuildRequestOptions(settings), cancellationToken)
                 .ConfigureAwait(false);
 
             string text = TranscriptPostProcessor.Process(result.Text, settings);
@@ -403,15 +483,31 @@ public sealed class DictationController : IDisposable
                 DateTimeOffset.Now,
                 text,
                 result.Model,
-                recording.Duration.TotalSeconds,
+                TimeSpan.FromSeconds(input.WavBytes.Length / (double)WavUtil.BytesPerSecond).TotalSeconds,
                 (long)result.Elapsed.TotalMilliseconds));
 
-            InsertionResult insertion = await _injector.InsertAsync(text, cancellationToken).ConfigureAwait(false);
+            // Wait for the earlier sentences of this session to be typed before adding this one,
+            // so the text lands in the order it was spoken.
+            await input.Predecessor.ConfigureAwait(false);
+
+            InsertionResult insertion = await _injector
+                .InsertAsync(SeparatorFor() + text, cancellationToken)
+                .ConfigureAwait(false);
 
             switch (insertion.Outcome)
             {
                 case InsertionOutcome.Success:
-                    ShowOverlay(o => o.ShowPreview(text), sequence);
+                    // A segment leaves the pill listening: the session is still running and the
+                    // preview's own auto-hide would take the pill away mid-sentence.
+                    if (input.IsSegment)
+                    {
+                        ShowOverlay(o => o.ShowSegment(text), sequence);
+                    }
+                    else
+                    {
+                        ShowOverlay(o => o.ShowPreview(text), sequence);
+                    }
+
                     break;
 
                 case InsertionOutcome.Cancelled:
@@ -451,12 +547,32 @@ public sealed class DictationController : IDisposable
         }
         finally
         {
+            // Always release the next piece, even after a failure: one sentence that could not
+            // be transcribed must not strand the rest of the session behind it.
+            input.Completion.TrySetResult();
+
             lock (_gate)
             {
                 _pipelinesRunning--;
+                if (input.IsSegment)
+                {
+                    _segmentsTyped++;
+                }
             }
 
             RefreshState();
+        }
+    }
+
+    /// <summary>
+    /// What goes between two sentences of the same session. Thai does not space between words,
+    /// but it does between clauses, and without it the sentences run together.
+    /// </summary>
+    private string SeparatorFor()
+    {
+        lock (_gate)
+        {
+            return _segmentsTyped > 0 ? " " : string.Empty;
         }
     }
 
