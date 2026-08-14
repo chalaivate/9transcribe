@@ -1,0 +1,12 @@
+bin/
+obj/
+publish/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+.vs/
+.idea/
+*.log
+TestResults/
+__pycache__/
