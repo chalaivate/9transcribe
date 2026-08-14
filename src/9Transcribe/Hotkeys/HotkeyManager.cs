@@ -262,6 +262,21 @@ public sealed class HotkeyManager : IDisposable
         ushort vk = e.Vk;
         UpdateModifierState(vk, e.IsUp);
 
+        // Maintained ahead of every other branch: the latch has to keep tracking the key even
+        // while the app is disabled or capturing a new binding, or it would decide the key had
+        // been let go and let the next auto-repeat start a hold nobody pressed.
+        if (_awaitingRealKeyUp && vk == _awaitedVk)
+        {
+            if (e.IsUp)
+            {
+                _awaitingRealKeyUp = false;
+            }
+            else
+            {
+                _lastAwaitedDownTicks = Environment.TickCount64;
+            }
+        }
+
         if (!e.IsUp)
         {
             Publish(QueuedEvent.Physical(e));
@@ -291,13 +306,6 @@ public sealed class HotkeyManager : IDisposable
                 _toggleHeld = false;
             }
 
-            // The key the user actually let go of is the one piece of evidence that outranks
-            // every heuristic, so it always clears the latch.
-            if (_awaitingRealKeyUp && vk == _awaitedVk)
-            {
-                _awaitingRealKeyUp = false;
-            }
-
             if (_pushHeld && ShouldReleasePush(vk))
             {
                 ReleasePush();
@@ -318,8 +326,7 @@ public sealed class HotkeyManager : IDisposable
         {
             if (_awaitingRealKeyUp && vk == _awaitedVk)
             {
-                // Still physically down: the repeats are what keep the latch closed.
-                _lastAwaitedDownTicks = Environment.TickCount64;
+                // Still physically down, so this is a repeat of the hold that was already ended.
                 return ApplySwallow(push, vk);
             }
 

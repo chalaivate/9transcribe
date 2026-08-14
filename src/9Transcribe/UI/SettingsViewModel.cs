@@ -873,7 +873,9 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             return Task.CompletedTask;
         }
 
-        StopMonitoring();
+        // Deliberately not stopping the meter first: the recorder promotes a running monitor
+        // straight to recording on the same device, whereas stopping it puts the recorder into
+        // its teardown state and the start would only ever be queued behind it.
         TestTranscript = string.Empty;
         IsTestRecording = true;
 
@@ -897,9 +899,11 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         }
 
         // Only run the countdown if the test really owns the microphone, or it would end up
-        // stopping a dictation it never started.
+        // stopping a dictation it never started. A queued start has to be called off as well,
+        // or it would begin on its own with nothing watching it.
         if (outcome != StartOutcome.Started)
         {
+            _recorder.StopRecording(StopReason.Cancelled);
             FinishTestRecording("เริ่มอัดเสียงไม่ได้ ไมโครโฟนอาจถูกใช้งานอยู่");
             return Task.CompletedTask;
         }

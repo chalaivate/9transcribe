@@ -45,15 +45,14 @@ public sealed class DictationController : IDisposable
     private int _pipelinesRunning;
     private long _dictationSequence;
 
-    /// <summary>Sentences typed so far in this session; decides whether a separator is needed.</summary>
-    private int _segmentsTyped;
-
     /// <summary>
     /// Tail of the typing queue. Each piece of a session takes the current tail as its
     /// predecessor and leaves its own completion in its place, which keeps the sentences in
-    /// spoken order even though they are transcribed concurrently.
+    /// spoken order even though they are transcribed concurrently. The state travels along the
+    /// queue rather than living in a field, because a field would be rewritten by the next
+    /// session while the previous one still had a sentence in flight.
     /// </summary>
-    private Task _insertionChain = Task.CompletedTask;
+    private Task<ChainState> _insertionChain = Task.FromResult(default(ChainState));
 
     public DictationController(
         SettingsStore settings,
@@ -239,7 +238,6 @@ public sealed class DictationController : IDisposable
             _recordingActive = true;
             _startedByToggle = toggleMode;
             _dictationSequence++;
-            _segmentsTyped = 0;
         }
 
         AppSettings settings = _settings.Current;
@@ -358,8 +356,8 @@ public sealed class DictationController : IDisposable
         // Claim this segment's place in the queue now, while the order is still known. The
         // pipelines run concurrently and a short sentence overtakes a long one, so without this
         // the sentences would be typed in whichever order the API happened to answer.
-        var mine = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task previous = Interlocked.Exchange(ref _insertionChain, mine.Task);
+        var mine = new TaskCompletionSource<ChainState>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<ChainState> previous = Interlocked.Exchange(ref _insertionChain, mine.Task);
 
         _ = Task.Run(
             () => RunPipelineAsync(
@@ -439,8 +437,8 @@ public sealed class DictationController : IDisposable
 
         // The tail queues behind the sentences already handed over during the session, so it is
         // typed last however quickly it comes back.
-        var mine = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task previous = Interlocked.Exchange(ref _insertionChain, mine.Task);
+        var mine = new TaskCompletionSource<ChainState>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<ChainState> previous = Interlocked.Exchange(ref _insertionChain, mine.Task);
 
         // Deliberately not cancelling any pipeline already in flight: chaining a second
         // dictation while the first is still uploading must not throw the first one away.
@@ -452,19 +450,29 @@ public sealed class DictationController : IDisposable
     }
 
     /// <summary>One unit of work through the pipeline, and its place in the typing queue.</summary>
-    /// <param name="Predecessor">Completes when the previous piece of this session has been typed.</param>
+    /// <param name="Predecessor">Completes when the previous piece has been typed.</param>
     /// <param name="Completion">Signals the next piece that its turn has come.</param>
     private readonly record struct PipelineInput(
         byte[] WavBytes,
         long Sequence,
-        Task Predecessor,
-        TaskCompletionSource Completion,
+        Task<ChainState> Predecessor,
+        TaskCompletionSource<ChainState> Completion,
         bool IsSegment);
+
+    /// <summary>
+    /// What the queue passes from one piece to the next: which dictation it belonged to, and
+    /// whether anything has actually been typed for it yet. The sequence is what stops a new
+    /// dictation from being glued onto the previous one's last sentence.
+    /// </summary>
+    private readonly record struct ChainState(long Sequence, bool AnyTyped);
 
     private async Task RunPipelineAsync(PipelineInput input, CancellationToken cancellationToken)
     {
         AppSettings settings = _settings.Current;
         long sequence = input.Sequence;
+        ChainState carried = default;
+        bool reachedQueue = false;
+        bool typed = false;
 
         try
         {
@@ -488,11 +496,14 @@ public sealed class DictationController : IDisposable
 
             // Wait for the earlier sentences of this session to be typed before adding this one,
             // so the text lands in the order it was spoken.
-            await input.Predecessor.ConfigureAwait(false);
+            carried = await input.Predecessor.ConfigureAwait(false);
+            reachedQueue = true;
 
             InsertionResult insertion = await _injector
-                .InsertAsync(SeparatorFor() + text, cancellationToken)
+                .InsertAsync(SeparatorFor(carried, sequence) + text, cancellationToken)
                 .ConfigureAwait(false);
+
+            typed = insertion.Outcome == InsertionOutcome.Success;
 
             switch (insertion.Outcome)
             {
@@ -548,33 +559,47 @@ public sealed class DictationController : IDisposable
         finally
         {
             // Always release the next piece, even after a failure: one sentence that could not
-            // be transcribed must not strand the rest of the session behind it.
-            input.Completion.TrySetResult();
+            // be transcribed must not strand the rest of the session behind it. A piece that
+            // failed before reaching the queue still has to wait its turn, or it would hand the
+            // successor a state older than the one already in flight.
+            if (!reachedQueue)
+            {
+                carried = await WaitForTurnAsync(input.Predecessor).ConfigureAwait(false);
+            }
+
+            bool anyTyped = (carried.Sequence == sequence && carried.AnyTyped) || typed;
+            input.Completion.TrySetResult(new ChainState(sequence, anyTyped));
 
             lock (_gate)
             {
                 _pipelinesRunning--;
-                if (input.IsSegment)
-                {
-                    _segmentsTyped++;
-                }
             }
 
             RefreshState();
         }
     }
 
-    /// <summary>
-    /// What goes between two sentences of the same session. Thai does not space between words,
-    /// but it does between clauses, and without it the sentences run together.
-    /// </summary>
-    private string SeparatorFor()
+    /// <summary>Awaits the predecessor without letting its failure become ours.</summary>
+    private static async Task<ChainState> WaitForTurnAsync(Task<ChainState> predecessor)
     {
-        lock (_gate)
+        try
         {
-            return _segmentsTyped > 0 ? " " : string.Empty;
+            return await predecessor.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Previous insertion did not complete cleanly: {ex.Message}");
+            return default;
         }
     }
+
+    /// <summary>
+    /// What goes between two sentences of the same dictation. Thai does not space between words,
+    /// but it does between clauses, and without it the sentences run together. A new dictation
+    /// starts clean, so its first sentence never inherits a separator from the last one.
+    /// </summary>
+    private static string SeparatorFor(ChainState carried, long sequence) =>
+        carried.Sequence == sequence && carried.AnyTyped ? " " : string.Empty;
 
     private TranscriptionRequestOptions BuildRequestOptions(AppSettings settings)
     {

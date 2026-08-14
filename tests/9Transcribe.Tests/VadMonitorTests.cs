@@ -249,6 +249,18 @@ public sealed class VadMonitorTests
         Assert.True(monitor.NoiseFloorDbfs > learned);
     }
 
+    [Fact]
+    public void HangoverMs_IsAlwaysLongerThanTheRecordersTrimPadding()
+    {
+        var settings = new VadSettings { HangoverMs = 1 };
+        settings.Normalize();
+
+        // The recorder pads each sentence by 200 ms on both sides. If a pause could be shorter
+        // than that padding, one sentence's tail would reach into the next one's onset and the
+        // same audio would be sent twice.
+        Assert.True(settings.HangoverMs > 200);
+    }
+
     private static byte[] Concat(params byte[][] parts)
     {
         byte[] result = new byte[parts.Sum(part => part.Length)];

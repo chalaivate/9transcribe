@@ -201,6 +201,13 @@ public sealed class AudioRecorder : IDisposable
     private const int TrimPadMs = 200;
     private const int InitialCaptureCapacity = 512 * 1024;
 
+    /// <summary>
+    /// Ceiling on a single session's capture buffer. Segmenting removes the reason to stop at
+    /// the per-recording cap, so without this a session left running while somebody talks would
+    /// grow the buffer without limit — this is an hour of audio, about 115 MB.
+    /// </summary>
+    private const long SessionCaptureLimitBytes = 3600L * WavUtil.BytesPerSecond;
+
     private readonly object _gate = new();
     private readonly byte[] _preRoll = new byte[WavUtil.BytesForMilliseconds(PreRollMs)];
 
@@ -580,7 +587,8 @@ public sealed class AudioRecorder : IDisposable
 
                 // Measured against the part not yet handed over, so a segmented session can run
                 // for as long as the user keeps talking while each upload stays a sane size.
-                if (_capturedBytes - _segmentConsumed >= _maxBytes)
+                if (_capturedBytes - _segmentConsumed >= _maxBytes
+                    || _capturedBytes >= SessionCaptureLimitBytes)
                 {
                     Log.Info("Recording hit the maximum duration");
                     RequestStopLocked(StopReason.MaxDurationReached);
