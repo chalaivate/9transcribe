@@ -857,9 +857,10 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             MaxDurationSeconds: 5,
             MinUtteranceMs: _settings.MinUtteranceMs);
 
+        StartOutcome outcome;
         try
         {
-            _recorder.StartRecording(options);
+            outcome = _recorder.StartRecording(options);
         }
         catch (Exception ex)
         {
@@ -868,10 +869,9 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             return Task.CompletedTask;
         }
 
-        // The recorder swallows a failed device open, and it refuses to start while a dictation
-        // already holds the microphone. Only run the countdown if it really started, or the
-        // countdown would end up stopping somebody else's recording.
-        if (_recorder.State != RecorderState.Recording)
+        // Only run the countdown if the test really owns the microphone, or it would end up
+        // stopping a dictation it never started.
+        if (outcome != StartOutcome.Started)
         {
             FinishTestRecording("เริ่มอัดเสียงไม่ได้ ไมโครโฟนอาจถูกใช้งานอยู่");
             return Task.CompletedTask;

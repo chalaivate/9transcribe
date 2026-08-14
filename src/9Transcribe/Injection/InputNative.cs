@@ -11,6 +11,7 @@ internal static class InputNative
 {
     internal const uint InputKeyboard = 1;
 
+    internal const uint KeyEventExtendedKey = 0x0001;
     internal const uint KeyEventKeyUp = 0x0002;
     internal const uint KeyEventUnicode = 0x0004;
     internal const uint KeyEventScanCode = 0x0008;
@@ -18,6 +19,12 @@ internal static class InputNative
     internal const ushort VkShift = 0x10;
     internal const ushort VkControl = 0x11;
     internal const ushort VkMenu = 0x12;
+    internal const ushort VkLShift = 0xA0;
+    internal const ushort VkRShift = 0xA1;
+    internal const ushort VkLControl = 0xA2;
+    internal const ushort VkRControl = 0xA3;
+    internal const ushort VkLMenu = 0xA4;
+    internal const ushort VkRMenu = 0xA5;
     internal const ushort VkLwin = 0x5B;
     internal const ushort VkRwin = 0x5C;
     internal const ushort VkReturn = 0x0D;

@@ -248,9 +248,10 @@ public sealed class DictationController : IDisposable
             settings.MaxRecordingSeconds,
             settings.MinUtteranceMs);
 
+        StartOutcome outcome;
         try
         {
-            _recorder.StartRecording(options);
+            outcome = _recorder.StartRecording(options);
         }
         catch (Exception ex)
         {
@@ -259,10 +260,10 @@ public sealed class DictationController : IDisposable
             return;
         }
 
-        // The recorder reports a failed device open through its Error event rather than by
-        // throwing, and it ignores a start request while something else already holds the
-        // microphone. Either way the only reliable signal is whether it actually started.
-        if (_recorder.State != RecorderState.Recording)
+        // A failed device open is reported through the Error event rather than by throwing, so
+        // the outcome is the only reliable signal. Queued is a success: pressing again quickly
+        // lands while the previous session is still closing, and it starts by itself.
+        if (outcome == StartOutcome.Failed)
         {
             AbandonRecording("เริ่มบันทึกเสียงไม่ได้ ไมโครโฟนอาจถูกใช้งานอยู่");
             return;
@@ -528,7 +529,9 @@ public sealed class DictationController : IDisposable
 
     /// <summary>
     /// Runs an overlay update, unless a newer dictation has taken over the pill in the meantime
-    /// or the user has turned the overlay off.
+    /// or the user has turned the overlay off. The staleness check happens here rather than
+    /// inside the dispatched action: by the time the UI thread runs, the next dictation has
+    /// usually bumped the sequence already, which silently swallowed every message.
     /// </summary>
     private void ShowOverlay(Action<OverlayViewModel> update, long sequence)
     {
@@ -537,18 +540,15 @@ public sealed class DictationController : IDisposable
             return;
         }
 
-        RunOnUi(() =>
+        lock (_gate)
         {
-            lock (_gate)
+            if (sequence != _dictationSequence)
             {
-                if (sequence != _dictationSequence)
-                {
-                    return;
-                }
+                return;
             }
+        }
 
-            update(_overlay);
-        });
+        RunOnUi(() => update(_overlay));
     }
 
     private void RunOnUi(Action action)

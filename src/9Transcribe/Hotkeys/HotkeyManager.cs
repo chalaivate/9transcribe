@@ -23,10 +23,22 @@ public sealed class HotkeyManager : IDisposable
     private const int HealthIntervalMs = 60_000;
 
     /// <summary>
-    /// GetAsyncKeyState can still report the previous state on the tick right after a press,
-    /// so a missed key-up has to be observed twice before it is believed.
+    /// How many watchdog ticks may disagree with the hook stream before a missed key-up is
+    /// believed. The hook stream and GetAsyncKeyState are different sources of truth: another
+    /// low-level hook or filter driver below us in the chain can consume the key so the system
+    /// never records it as down, and half a second of disagreement is the point where a genuinely
+    /// lost key-up becomes more likely than a slow one.
     /// </summary>
-    private const int MissedUpTicksBeforeRelease = 2;
+    private const int MissedUpTicksBeforeRelease = 5;
+
+    /// <summary>
+    /// A held key auto-repeats every few tens of milliseconds, so once the repeats stop for this
+    /// long the key is certainly up. This is how the latch clears when the key-up event itself is
+    /// the thing going missing — it reads the same stream the press came from rather than trusting
+    /// the key state that already proved unreliable. A key that never repeats simply clears the
+    /// latch early, which is harmless: with no repeats there is nothing to re-arm a hold.
+    /// </summary>
+    private const int RepeatGapMs = 300;
 
     private readonly KeyboardHookService _hook;
     private readonly Channel<QueuedEvent> _events;
@@ -62,6 +74,17 @@ public sealed class HotkeyManager : IDisposable
     private HotkeyModifiers _pushMods;
     private long _pushStartedTicks;
     private int _missedUpTicks;
+
+    /// <summary>
+    /// Set when a hold is ended by anything other than the user letting go, and cleared only by
+    /// a genuine key-up (or by the key really being up). Without it the next hardware auto-repeat
+    /// — which arrives about every 30 ms while the key is held — would immediately start another
+    /// hold, and the app would flip between recording and not recording for as long as the key
+    /// stayed down.
+    /// </summary>
+    private bool _awaitingRealKeyUp;
+    private ushort _awaitedVk;
+    private long _lastAwaitedDownTicks;
 
     private bool _toggleHeld;
     private ushort _toggleVk;
@@ -254,7 +277,7 @@ public sealed class HotkeyManager : IDisposable
         {
             if (_pushHeld)
             {
-                ReleasePush();
+                ForceReleasePush();
             }
 
             return swallow;
@@ -265,6 +288,13 @@ public sealed class HotkeyManager : IDisposable
             if (_toggleHeld && vk == _toggleVk)
             {
                 _toggleHeld = false;
+            }
+
+            // The key the user actually let go of is the one piece of evidence that outranks
+            // every heuristic, so it always clears the latch.
+            if (_awaitingRealKeyUp && vk == _awaitedVk)
+            {
+                _awaitingRealKeyUp = false;
             }
 
             if (_pushHeld && ShouldReleasePush(vk))
@@ -285,6 +315,13 @@ public sealed class HotkeyManager : IDisposable
         HotkeyBinding push = PushToTalk;
         if (push.IsEnabled && Matches(push, vk))
         {
+            if (_awaitingRealKeyUp && vk == _awaitedVk)
+            {
+                // Still physically down: the repeats are what keep the latch closed.
+                _lastAwaitedDownTicks = Environment.TickCount64;
+                return ApplySwallow(push, vk);
+            }
+
             // The hook repeats key-down while the key is held; the flag keeps one press per hold.
             if (!_pushHeld)
             {
@@ -367,6 +404,21 @@ public sealed class HotkeyManager : IDisposable
         Publish(QueuedEvent.Simple(HotkeySignal.PushReleased));
     }
 
+    /// <summary>
+    /// Ends a hold that the user has not let go of, latching until a real key-up arrives so the
+    /// key's auto-repeat cannot immediately start another one.
+    /// </summary>
+    private void ForceReleasePush()
+    {
+        _awaitingRealKeyUp = true;
+        _awaitedVk = _pushVk;
+        _lastAwaitedDownTicks = Environment.TickCount64;
+        ReleasePush();
+
+        // The watchdog keeps ticking so the latch can notice the repeats stopping.
+        _watchdog.Change(WatchdogIntervalMs, WatchdogIntervalMs);
+    }
+
     private bool HandleCapture(ushort vk, bool isUp)
     {
         bool modifier = HotkeyDisplay.IsModifierKey(vk);
@@ -432,6 +484,18 @@ public sealed class HotkeyManager : IDisposable
         Publish(QueuedEvent.Gesture(binding));
     }
 
+    /// <summary>
+    /// Clears modifier tracking after a hook re-arm, where a key-up landing in the gap would
+    /// otherwise leave a modifier stuck down for the rest of the session.
+    /// </summary>
+    private void ResetModifierState()
+    {
+        _leftCtrl = _rightCtrl = false;
+        _leftShift = _rightShift = false;
+        _leftAlt = _rightAlt = false;
+        _leftWin = _rightWin = false;
+    }
+
     private void ResetCapture()
     {
         _captureHeld.Clear();
@@ -442,13 +506,24 @@ public sealed class HotkeyManager : IDisposable
 
     /// <summary>
     /// Modifier state is tracked from the hook's own stream rather than GetAsyncKeyState, which
-    /// races against the event being processed. The hook always reports the side-specific codes.
+    /// races against the event being processed. Physical keyboards report the side-specific
+    /// codes, but RDP clients, VM consoles, on-screen keyboards and some remappers send the
+    /// side-agnostic ones, and dropping those left every combination unmatched there.
     /// </summary>
     private void UpdateModifierState(ushort vk, bool isUp)
     {
         bool down = !isUp;
         switch (vk)
         {
+            case KeyboardNative.VkControl:
+                _leftCtrl = down;
+                break;
+            case KeyboardNative.VkShift:
+                _leftShift = down;
+                break;
+            case KeyboardNative.VkMenu:
+                _leftAlt = down;
+                break;
             case KeyboardNative.VkLControl:
                 _leftCtrl = down;
                 break;
@@ -513,8 +588,19 @@ public sealed class HotkeyManager : IDisposable
     {
         lock (_gate)
         {
+            if (_awaitingRealKeyUp
+                && Environment.TickCount64 - _lastAwaitedDownTicks >= RepeatGapMs)
+            {
+                _awaitingRealKeyUp = false;
+            }
+
             if (!_pushHeld)
             {
+                if (!_awaitingRealKeyUp)
+                {
+                    _watchdog.Change(Timeout.Infinite, Timeout.Infinite);
+                }
+
                 return;
             }
 
@@ -522,7 +608,7 @@ public sealed class HotkeyManager : IDisposable
             if (heldMs >= Math.Max(1, MaxHoldSeconds) * 1000L)
             {
                 Log.Warn($"Push-to-talk force-released after {heldMs} ms");
-                ReleasePush();
+                ForceReleasePush();
                 return;
             }
 
@@ -538,9 +624,11 @@ public sealed class HotkeyManager : IDisposable
                 return;
             }
 
-            Log.Warn("Push-to-talk key-up never arrived; releasing and re-arming the hook");
-            ReleasePush();
-            Publish(QueuedEvent.Simple(HotkeySignal.Reinstall));
+            // Deliberately not re-arming the hook here. Tearing it down and installing it
+            // again drops the events that land in the gap, and the event most likely to be lost
+            // is the very key-up this path is waiting for.
+            Log.Warn("Push-to-talk key-up never arrived; releasing the hold");
+            ForceReleasePush();
         }
     }
 
@@ -548,11 +636,22 @@ public sealed class HotkeyManager : IDisposable
     {
         try
         {
-            _hook.Reinstall();
+            Reinstall();
         }
         catch (Exception ex)
         {
             Log.Error("Periodic hook re-arm failed", ex);
+        }
+    }
+
+    /// <summary>Re-arms the hook and drops the modifier state the gap may have invalidated.</summary>
+    private void Reinstall()
+    {
+        _hook.Reinstall();
+
+        lock (_gate)
+        {
+            ResetModifierState();
         }
     }
 
@@ -575,7 +674,7 @@ public sealed class HotkeyManager : IDisposable
                     if (_pushHeld)
                     {
                         Log.Warn($"Session switch ({e.Reason}) while holding push-to-talk; releasing");
-                        ReleasePush();
+                        ForceReleasePush();
                     }
                 }
 
@@ -649,7 +748,7 @@ public sealed class HotkeyManager : IDisposable
                             break;
 
                         case HotkeySignal.Reinstall:
-                            _hook.Reinstall();
+                            Reinstall();
                             break;
 
                         default:

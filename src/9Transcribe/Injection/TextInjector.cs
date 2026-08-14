@@ -84,14 +84,26 @@ public sealed class TextInjector : IDisposable
     private const int ModifierPollMs = 15;
     private const int ModifierTimeoutMs = 1500;
 
+    /// <summary>
+    /// Side-specific codes, because a forced release has to name the key it is releasing: the
+    /// side-agnostic VK_CONTROL maps to the left control's scan code, so releasing it leaves a
+    /// held right control down — and holding right control is the default way to dictate.
+    /// </summary>
     private static readonly ushort[] Modifiers =
     {
-        InputNative.VkShift,
-        InputNative.VkControl,
-        InputNative.VkMenu,
+        InputNative.VkLShift,
+        InputNative.VkRShift,
+        InputNative.VkLControl,
+        InputNative.VkRControl,
+        InputNative.VkLMenu,
+        InputNative.VkRMenu,
         InputNative.VkLwin,
         InputNative.VkRwin,
     };
+
+    /// <summary>Keys whose scan code only identifies them with the extended-key flag set.</summary>
+    private static bool IsExtendedKey(ushort vk) => vk is InputNative.VkRControl
+        or InputNative.VkRMenu or InputNative.VkLwin or InputNative.VkRwin;
 
     private readonly Func<AppSettings> _settingsProvider;
     private readonly BlockingCollection<WorkItem> _queue = new();
@@ -278,6 +290,12 @@ public sealed class TextInjector : IDisposable
     private static void ForceKeyUp(ushort vk)
     {
         ushort scan = (ushort)InputNative.MapVirtualKeyW(vk, InputNative.MapVkToVsc);
+        uint flags = InputNative.KeyEventKeyUp;
+        if (IsExtendedKey(vk))
+        {
+            flags |= InputNative.KeyEventExtendedKey;
+        }
+
         InputNative.Input[] inputs =
         {
             new()
@@ -289,7 +307,7 @@ public sealed class TextInjector : IDisposable
                     {
                         Vk = vk,
                         Scan = scan,
-                        Flags = InputNative.KeyEventKeyUp,
+                        Flags = flags,
                         Time = 0,
                         ExtraInfo = InjectionTag.Value,
                     },

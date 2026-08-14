@@ -26,6 +26,19 @@ public enum StopReason
     Cancelled,
 }
 
+/// <summary>What became of a <see cref="AudioRecorder.StartRecording"/> request.</summary>
+public enum StartOutcome
+{
+    /// <summary>Capture is running.</summary>
+    Started,
+
+    /// <summary>Queued behind a session that is closing; it will start on its own.</summary>
+    Queued,
+
+    /// <summary>The device could not be opened, or something else already holds it.</summary>
+    Failed,
+}
+
 public enum RecorderErrorKind
 {
     DeviceLost,
@@ -326,44 +339,57 @@ public sealed class AudioRecorder : IDisposable
     /// kept open and its pre-roll is carried into the recording, which is the only way the first
     /// syllable survives the delay between speaking and pressing the key.
     /// </summary>
-    public void StartRecording(RecordingOptions options)
+    /// <summary>
+    /// Starts capturing, or queues the start behind a session that is still winding down. The
+    /// caller cannot tell those apart from <see cref="State"/> alone — the device takes tens of
+    /// milliseconds to close, so a quick second press legitimately lands in <c>Stopping</c> —
+    /// hence the explicit outcome.
+    /// </summary>
+    public StartOutcome StartRecording(RecordingOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(options.Vad);
 
         var errors = new List<RecorderErrorEventArgs>();
+        StartOutcome outcome;
 
         lock (_gate)
         {
             if (_disposed)
             {
-                return;
+                return StartOutcome.Failed;
             }
 
             if (_state == RecorderState.Recording)
             {
                 Log.Warn("StartRecording ignored: a recording is already running");
+                outcome = StartOutcome.Failed;
             }
             else if (_state == RecorderState.Stopping)
             {
                 _pending = new PendingStart(options, null);
+                outcome = StartOutcome.Queued;
             }
             else if (_state == RecorderState.Monitoring && SameDeviceLocked(options.DeviceFriendlyName))
             {
                 PromoteToRecordingLocked(options);
+                outcome = _state == RecorderState.Recording ? StartOutcome.Started : StartOutcome.Failed;
             }
             else if (_state == RecorderState.Monitoring)
             {
                 _pending = new PendingStart(options, null);
                 RequestStopLocked(StopReason.UserStopped);
+                outcome = StartOutcome.Queued;
             }
             else
             {
                 BeginSessionLocked(options, null, errors);
+                outcome = _state == RecorderState.Recording ? StartOutcome.Started : StartOutcome.Failed;
             }
         }
 
         RaiseErrors(errors);
+        return outcome;
     }
 
     /// <summary>Safe from any thread, including the capture thread.</summary>
