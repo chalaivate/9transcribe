@@ -24,7 +24,9 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
+    <!-- 2.4.x ships only net10.0-windows and net462, so it silently falls back to the
+         .NET Framework assets on net8.0-windows. 2.3.0 has a real net8.0-windows7.0 build. -->
+    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.3.0" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>

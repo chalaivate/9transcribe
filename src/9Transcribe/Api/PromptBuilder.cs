@@ -25,10 +25,7 @@ public static class PromptBuilder
         if (head.Length > 0)
         {
             builder.Append(head);
-            if (!head.EndsWith(' ') && !head.EndsWith(':'))
-            {
-                builder.Append(' ');
-            }
+            builder.Append(' ');
         }
 
         int budget = model.PromptCharBudget;

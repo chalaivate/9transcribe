@@ -183,26 +183,30 @@ public sealed class OpenAiTranscriptionClient
         using var content = new MultipartFormDataContent();
         var audio = new ByteArrayContent(wavBytes);
         audio.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
-        // The filename is what the API uses to sniff the container; without it the
-        // request fails with "could not determine file format".
-        content.Add(audio, "file", "audio.wav");
-        content.Add(new StringContent(options.Model, Encoding.UTF8), "model");
-        content.Add(new StringContent("json", Encoding.UTF8), "response_format");
-        content.Add(
-            new StringContent(
-                options.Temperature.ToString("0.###", CultureInfo.InvariantCulture),
-                Encoding.UTF8),
-            "temperature");
+        // The filename is what the API uses to sniff the container; without it the request
+        // fails with "could not determine file format". Setting Content-Disposition by hand
+        // (with the quotes included) keeps the wire format identical to every other client:
+        // MultipartFormDataContent.Add would emit an unquoted name plus a filename* copy.
+        audio.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data")
+        {
+            Name = "\"file\"",
+            FileName = "\"audio.wav\"",
+        };
+        content.Add(audio);
+
+        AddField(content, "model", options.Model);
+        AddField(content, "response_format", "json");
+        AddField(content, "temperature", options.Temperature.ToString("0.###", CultureInfo.InvariantCulture));
 
         ModelCapabilities capabilities = ModelCapabilities.For(options.Model);
         if (capabilities.SupportsLanguage && !string.IsNullOrWhiteSpace(options.Language))
         {
-            content.Add(new StringContent(options.Language.Trim(), Encoding.UTF8), "language");
+            AddField(content, "language", options.Language.Trim());
         }
 
         if (capabilities.SupportsPrompt && !string.IsNullOrWhiteSpace(options.Prompt))
         {
-            content.Add(new StringContent(options.Prompt, Encoding.UTF8), "prompt");
+            AddField(content, "prompt", options.Prompt);
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Post, TranscriptionsUrl)
@@ -244,6 +248,18 @@ public sealed class OpenAiTranscriptionClient
 
             return ParseTranscript(body);
         }
+    }
+
+    private static void AddField(MultipartFormDataContent content, string name, string value)
+    {
+        // The charset stays on the part: the prompt field carries Thai, and a parser that
+        // assumed latin-1 would mangle the custom vocabulary.
+        var part = new StringContent(value, Encoding.UTF8);
+        part.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data")
+        {
+            Name = $"\"{name}\"",
+        };
+        content.Add(part);
     }
 
     /// <summary>Seconds requested by the last 429, used to pace the next retry.</summary>
