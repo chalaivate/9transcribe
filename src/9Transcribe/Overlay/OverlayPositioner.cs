@@ -121,6 +121,28 @@ public static class OverlayPositioner
             WindowNative.SwpNoSize | WindowNative.SwpNoActivate);
     }
 
+    /// <summary>
+    /// Where the pill starts its entrance, relative to where it ends up: it slides in from the
+    /// screen edge it is anchored to, so a pill at the top drops in and one at the bottom rises.
+    /// Corner anchors move diagonally by the same total distance.
+    /// </summary>
+    public static (double Dx, double Dy) EntranceOffset(OverlayPosition anchor, double distance)
+    {
+        double diagonal = distance * 0.7071;
+        return anchor switch
+        {
+            OverlayPosition.Top => (0, -distance),
+            OverlayPosition.Bottom => (0, distance),
+            OverlayPosition.Left => (-distance, 0),
+            OverlayPosition.Right => (distance, 0),
+            OverlayPosition.TopLeft => (-diagonal, -diagonal),
+            OverlayPosition.TopRight => (diagonal, -diagonal),
+            OverlayPosition.BottomLeft => (-diagonal, diagonal),
+            OverlayPosition.BottomRight => (diagonal, diagonal),
+            _ => (0, distance),
+        };
+    }
+
     /// <summary>Widest the preview text may be on this monitor, in device-independent pixels.</summary>
     public static double MaxContentWidthDip(IntPtr monitor)
     {

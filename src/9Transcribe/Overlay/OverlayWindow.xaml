@@ -17,97 +17,116 @@
         FontFamily="Leelawadee UI, Segoe UI">
 
   <Window.Resources>
-    <!-- The pill is always dark, whatever the app theme: it has to stay readable on top of
-         any wallpaper or document. -->
-    <SolidColorBrush x:Key="PillBackground" Color="#E61C1C1E" />
-    <SolidColorBrush x:Key="PillErrorBackground" Color="#E6541416" />
-    <SolidColorBrush x:Key="PillForeground" Color="#F2FFFFFF" />
-    <SolidColorBrush x:Key="RecordDot" Color="#FFFF453A" />
-
-    <Style x:Key="LevelBar" TargetType="Rectangle">
-      <Setter Property="Width" Value="3" />
-      <Setter Property="Fill" Value="#B3FFFFFF" />
-      <Setter Property="RadiusX" Value="1.5" />
-      <Setter Property="RadiusY" Value="1.5" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Margin" Value="1,0" />
-    </Style>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="pack://application:,,,/Themes/Overlay.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
   </Window.Resources>
 
-  <Border x:Name="Pill"
-          CornerRadius="22"
-          Background="{StaticResource PillBackground}"
-          Padding="18,10"
-          MaxWidth="900">
-    <Border.Effect>
-      <DropShadowEffect BlurRadius="16" ShadowDepth="2" Opacity="0.35" Color="#FF000000" />
-    </Border.Effect>
+  <!-- The margin is room for the shadow to bleed into; the transform is the entrance. -->
+  <Grid x:Name="Root" Margin="12,10,12,16" RenderTransformOrigin="0.5,0.5">
+    <Grid.RenderTransform>
+      <TransformGroup>
+        <ScaleTransform x:Name="EntranceScale" ScaleX="1" ScaleY="1" />
+        <TranslateTransform x:Name="EntranceSlide" X="0" Y="0" />
+      </TransformGroup>
+    </Grid.RenderTransform>
 
-    <Grid>
-      <!-- Listening -->
-      <StackPanel x:Name="ListeningPanel" Orientation="Horizontal" Visibility="Collapsed">
-        <Ellipse x:Name="RecordDotShape" Width="14" Height="14"
-                 Fill="{StaticResource RecordDot}"
-                 VerticalAlignment="Center"
-                 RenderTransformOrigin="0.5,0.5">
-          <Ellipse.RenderTransform>
-            <ScaleTransform x:Name="RecordDotScale" ScaleX="1" ScaleY="1" />
-          </Ellipse.RenderTransform>
-        </Ellipse>
+    <!-- The shadow is cast by an empty sibling rather than by the pill itself, so the blur is
+         re-rendered only when the pill changes size — not on every frame the waveform moves. -->
+    <Border x:Name="Shadow" CornerRadius="26" Background="#B0101018">
+      <Border.Effect>
+        <DropShadowEffect BlurRadius="24" ShadowDepth="6" Direction="270" Opacity="0.55" Color="#FF000000" />
+      </Border.Effect>
+    </Border>
 
-        <StackPanel Orientation="Horizontal" Margin="12,0,0,0" Height="20" VerticalAlignment="Center">
-          <Rectangle x:Name="Bar1" Style="{StaticResource LevelBar}" Height="4" />
-          <Rectangle x:Name="Bar2" Style="{StaticResource LevelBar}" Height="4" />
-          <Rectangle x:Name="Bar3" Style="{StaticResource LevelBar}" Height="4" />
-          <Rectangle x:Name="Bar4" Style="{StaticResource LevelBar}" Height="4" />
-          <Rectangle x:Name="Bar5" Style="{StaticResource LevelBar}" Height="4" />
-        </StackPanel>
+    <!-- Gradient ring; the brush is built in code so its rotation can be animated. -->
+    <Border x:Name="Ring" CornerRadius="26" BorderThickness="1.5" Background="Transparent">
+      <Border x:Name="Pill" CornerRadius="24.5" Background="{StaticResource PillGlassBrush}">
+        <Border CornerRadius="24.5" BorderThickness="0,1,0,0"
+                BorderBrush="{StaticResource RimHighlightBrush}" Padding="20,11">
+          <Grid>
+            <!-- Listening -->
+            <StackPanel x:Name="ListeningPanel" Orientation="Horizontal" Visibility="Collapsed">
+              <Grid Width="20" Height="20" VerticalAlignment="Center">
+                <Ellipse x:Name="RecordHalo" Fill="{StaticResource RecordDotBrush}" Opacity="0.35"
+                         RenderTransformOrigin="0.5,0.5">
+                  <Ellipse.RenderTransform>
+                    <ScaleTransform x:Name="RecordHaloScale" ScaleX="1" ScaleY="1" />
+                  </Ellipse.RenderTransform>
+                </Ellipse>
+                <Ellipse x:Name="RecordDotShape" Width="10" Height="10"
+                         Fill="{StaticResource RecordDotBrush}"
+                         RenderTransformOrigin="0.5,0.5">
+                  <Ellipse.RenderTransform>
+                    <ScaleTransform x:Name="RecordDotScale" ScaleX="1" ScaleY="1" />
+                  </Ellipse.RenderTransform>
+                </Ellipse>
+              </Grid>
 
-        <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
-          <TextBlock x:Name="ListeningText" FontSize="14"
-                     Foreground="{StaticResource PillForeground}" />
-          <!-- The sentence just typed, kept on one dim line so the pill stays a pill. -->
-          <TextBlock x:Name="ListeningSegmentText" FontSize="13" MaxWidth="420"
-                     Margin="0,2,0,0" Opacity="0.65" TextTrimming="CharacterEllipsis"
-                     Foreground="{StaticResource PillForeground}" Visibility="Collapsed" />
-        </StackPanel>
-      </StackPanel>
+              <!-- Fixed size on purpose: the bars change height thirty times a second, and a
+                   panel that grew with them would re-measure the window on every tick. -->
+              <Canvas x:Name="Waveform" Width="96" Height="22" Margin="14,0,0,0"
+                      VerticalAlignment="Center" ClipToBounds="False" />
 
-      <!-- Processing -->
-      <StackPanel x:Name="ProcessingPanel" Orientation="Horizontal" Visibility="Collapsed">
-        <Path x:Name="Spinner" Width="16" Height="16"
-              Stroke="{StaticResource PillForeground}" StrokeThickness="2"
-              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-              Data="M 8,1 A 7,7 0 1 1 1,8"
-              RenderTransformOrigin="0.5,0.5" VerticalAlignment="Center">
-          <Path.RenderTransform>
-            <RotateTransform x:Name="SpinnerRotation" Angle="0" />
-          </Path.RenderTransform>
-        </Path>
-        <TextBlock x:Name="ProcessingText" Margin="12,0,0,0" FontSize="14"
-                   Foreground="{StaticResource PillForeground}" VerticalAlignment="Center" />
-      </StackPanel>
+              <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                <TextBlock x:Name="ListeningText" FontSize="14"
+                           LineHeight="22" LineStackingStrategy="BlockLineHeight"
+                           Foreground="{StaticResource PillForeground}" />
+                <!-- The sentence just typed, kept on one dim line so the pill stays a pill.
+                     LineHeight is mandatory for Thai: tone marks stack above upper vowels. -->
+                <TextBlock x:Name="ListeningSegmentText" FontSize="13"
+                           LineHeight="21" LineStackingStrategy="BlockLineHeight"
+                           Margin="0,1,0,0" MaxWidth="420"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{StaticResource PillForegroundDim}" Visibility="Collapsed" />
+              </StackPanel>
+            </StackPanel>
 
-      <!-- Preview: LineHeight is mandatory. Thai stacks tone marks above upper vowels
-           (ที่ ปู่ กิ์) and they are clipped at the default line height. -->
-      <TextBlock x:Name="PreviewTextBlock" Visibility="Collapsed"
-                 FontSize="30"
-                 LineHeight="48"
-                 LineStackingStrategy="BlockLineHeight"
-                 TextWrapping="Wrap"
-                 TextAlignment="Center"
-                 TextTrimming="CharacterEllipsis"
-                 MaxHeight="150"
-                 Foreground="{StaticResource PillForeground}" />
+            <!-- Processing -->
+            <StackPanel x:Name="ProcessingPanel" Orientation="Horizontal" Visibility="Collapsed">
+              <Path x:Name="Spinner" Width="18" Height="18"
+                    Stroke="{StaticResource AccentStaticBrush}" StrokeThickness="2.5"
+                    StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                    Data="M 9,1.5 A 7.5,7.5 0 1 1 1.5,9"
+                    RenderTransformOrigin="0.5,0.5" VerticalAlignment="Center">
+                <Path.RenderTransform>
+                  <RotateTransform x:Name="SpinnerRotation" Angle="0" />
+                </Path.RenderTransform>
+              </Path>
+              <TextBlock x:Name="ProcessingText" Margin="12,0,0,0" FontSize="14"
+                         LineHeight="22" LineStackingStrategy="BlockLineHeight"
+                         Foreground="{StaticResource PillForeground}" VerticalAlignment="Center" />
+            </StackPanel>
 
-      <!-- Error and notice -->
-      <StackPanel x:Name="MessagePanel" Orientation="Horizontal" Visibility="Collapsed">
-        <TextBlock x:Name="MessageGlyph" Text="!" FontSize="15" FontWeight="Bold"
-                   Foreground="{StaticResource PillForeground}" VerticalAlignment="Center" />
-        <TextBlock x:Name="MessageText" Margin="10,0,0,0" FontSize="13" MaxWidth="520"
-                   TextWrapping="Wrap" LineHeight="22" LineStackingStrategy="BlockLineHeight"
-                   Foreground="{StaticResource PillForeground}" VerticalAlignment="Center" />
-      </StackPanel>
-    </Grid>
-  </Border>
+            <!-- Preview: LineHeight is mandatory. Thai stacks tone marks above upper vowels
+                 (ที่ ปู่ กิ์) and they are clipped at the default line height. The text is
+                 filled in from code as a run of inline pieces that fade in one after another. -->
+            <TextBlock x:Name="PreviewTextBlock" Visibility="Collapsed"
+                       FontSize="30"
+                       LineHeight="48"
+                       LineStackingStrategy="BlockLineHeight"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center"
+                       TextTrimming="CharacterEllipsis"
+                       MaxHeight="150"
+                       Foreground="{StaticResource PillForeground}" />
+
+            <!-- Error and notice -->
+            <StackPanel x:Name="MessagePanel" Orientation="Horizontal" Visibility="Collapsed">
+              <Border x:Name="MessageBadge" Width="22" Height="22" CornerRadius="11"
+                      Background="{StaticResource NoticeGlyphBrush}" VerticalAlignment="Center">
+                <TextBlock x:Name="MessageGlyph" Text="!" FontSize="14" FontWeight="Bold"
+                           Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+              <TextBlock x:Name="MessageText" Margin="12,0,0,0" FontSize="13" MaxWidth="520"
+                         TextWrapping="Wrap" LineHeight="22" LineStackingStrategy="BlockLineHeight"
+                         Foreground="{StaticResource PillForeground}" VerticalAlignment="Center" />
+            </StackPanel>
+          </Grid>
+        </Border>
+      </Border>
+    </Border>
+  </Grid>
 </Window>
