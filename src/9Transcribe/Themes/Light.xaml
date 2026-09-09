@@ -1,16 +1,33 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-  <SolidColorBrush x:Key="BgWindow" Color="#FFF7F7F9" />
-  <SolidColorBrush x:Key="BgCard" Color="#FFFFFFFF" />
-  <SolidColorBrush x:Key="BgInput" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="BgWindow" Color="#FFF3F3F7" />
+  <SolidColorBrush x:Key="BgCard" Color="#D9FFFFFF" />
+  <SolidColorBrush x:Key="BgInput" Color="#F2FFFFFF" />
   <SolidColorBrush x:Key="FgPrimary" Color="#FF16181D" />
   <SolidColorBrush x:Key="FgSecondary" Color="#FF6B7280" />
-  <SolidColorBrush x:Key="Accent" Color="#FF2563EB" />
-  <SolidColorBrush x:Key="AccentSoft" Color="#FFDCE7FD" />
+  <SolidColorBrush x:Key="Accent" Color="#FF7C3AED" />
+  <SolidColorBrush x:Key="AccentSoft" Color="#FFEDE9FE" />
   <SolidColorBrush x:Key="Danger" Color="#FFDC2626" />
   <SolidColorBrush x:Key="Success" Color="#FF15803D" />
   <SolidColorBrush x:Key="Warning" Color="#FFB45309" />
   <SolidColorBrush x:Key="BorderSubtle" Color="#FFE1E3E8" />
 
+
+  <!-- Interaction states and chrome -->
+  <SolidColorBrush x:Key="BgHover" Color="#0F000000" />
+  <SolidColorBrush x:Key="BgPressed" Color="#1A000000" />
+  <SolidColorBrush x:Key="BgSelected" Color="#FFEDE9FE" />
+  <SolidColorBrush x:Key="BgPopup" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="ControlBorder" Color="#FFD6D8DF" />
+  <SolidColorBrush x:Key="FgOnAccent" Color="#FFFFFFFF" />
+
+  <!-- The brand gradient, shared with the icon and the overlay ring. -->
+  <LinearGradientBrush x:Key="AccentGradient" StartPoint="0,0" EndPoint="1,1">
+    <GradientStop Color="#FF7C3AED" Offset="0" />
+    <GradientStop Color="#FFEC4899" Offset="0.55" />
+    <GradientStop Color="#FFF97316" Offset="1" />
+  </LinearGradientBrush>
+
+  <FontFamily x:Key="FontUi">Leelawadee UI, Segoe UI</FontFamily>
 </ResourceDictionary>

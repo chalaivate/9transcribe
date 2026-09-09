@@ -20,7 +20,6 @@ public partial class App : Application
 {
     private const string MutexName = @"Local\9Transcribe.SingleInstance";
     private const string ShowSettingsEventName = @"Local\9Transcribe.ShowSettings";
-    private const int ApiTabIndex = 1;
 
     private Mutex? _instanceMutex;
     private EventWaitHandle? _showSettingsSignal;
@@ -79,7 +78,7 @@ public partial class App : Application
         // Nothing works without a key, so the first run opens straight onto the API tab.
         if (string.IsNullOrEmpty(settings.ApiKeyProtected) && !startedByWindows)
         {
-            ShowSettings(ApiTabIndex);
+            ShowSettings(SettingsWindow.ApiPageIndex);
         }
     }
 
@@ -138,7 +137,8 @@ public partial class App : Application
         _controller.Start();
 
         _tray = new TrayService(_history);
-        _tray.SettingsRequested += (_, _) => ShowSettings(0);
+        _tray.SettingsRequested += (_, _) => ShowSettings(SettingsWindow.GeneralPageIndex);
+        _tray.AboutRequested += (_, _) => ShowSettings(SettingsWindow.AboutPageIndex);
         _tray.ExitRequested += (_, _) => Shutdown();
         _tray.EnabledChanged += OnTrayEnabledChanged;
         _tray.HistoryEntryChosen += OnHistoryEntryChosen;

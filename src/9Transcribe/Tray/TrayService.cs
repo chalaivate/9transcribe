@@ -52,7 +52,7 @@ public sealed class TrayService : IDisposable
         logItem.Click += (_, _) => OpenLogFolder();
 
         var aboutItem = new MenuItem { Header = "เกี่ยวกับ 9Transcribe" };
-        aboutItem.Click += (_, _) => ShowAbout();
+        aboutItem.Click += (_, _) => AboutRequested?.Invoke(this, EventArgs.Empty);
 
         var exitItem = new MenuItem { Header = "ออกจากโปรแกรม" };
         exitItem.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
@@ -79,6 +79,9 @@ public sealed class TrayService : IDisposable
     }
 
     public event EventHandler? SettingsRequested;
+
+    /// <summary>The user asked to see the About page.</summary>
+    public event EventHandler? AboutRequested;
 
     public event EventHandler? ExitRequested;
 
@@ -198,15 +201,5 @@ public sealed class TrayService : IDisposable
         {
             Log.Warn($"Log folder could not be opened: {ex.Message}");
         }
-    }
-
-    private static void ShowAbout()
-    {
-        string version = typeof(TrayService).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
-        MessageBox.Show(
-            $"9Transcribe {version}\n\nพิมพ์ด้วยเสียง ภาษาไทยปนอังกฤษ\nถอดเสียงด้วย OpenAI",
-            "เกี่ยวกับ 9Transcribe",
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
     }
 }

@@ -33,15 +33,39 @@ public static class ThemeManager
             return;
         }
 
-        var dictionary = new ResourceDictionary
+        var palette = new ResourceDictionary
         {
             Source = new Uri(
                 dark ? "Themes/Dark.xaml" : "Themes/Light.xaml",
                 UriKind.Relative),
         };
 
-        app.Resources.MergedDictionaries.Clear();
-        app.Resources.MergedDictionaries.Add(dictionary);
+        // Only the palette is swapped. Clearing the whole collection would also throw away the
+        // control templates merged alongside it, and every control would snap back to WPF's
+        // stock look on the first theme change.
+        var merged = app.Resources.MergedDictionaries;
+        int index = -1;
+        for (int i = 0; i < merged.Count; i++)
+        {
+            string? source = merged[i].Source?.OriginalString;
+            if (source is not null
+                && (source.EndsWith("Light.xaml", StringComparison.OrdinalIgnoreCase)
+                    || source.EndsWith("Dark.xaml", StringComparison.OrdinalIgnoreCase)))
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index >= 0)
+        {
+            merged[index] = palette;
+        }
+        else
+        {
+            merged.Insert(0, palette);
+        }
+
         IsDarkActive = dark;
     }
 
