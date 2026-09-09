@@ -24,8 +24,9 @@
     </ResourceDictionary>
   </Window.Resources>
 
-  <!-- The margin is room for the shadow to bleed into; the transform is the entrance. -->
-  <Grid x:Name="Root" Margin="12,10,12,16" RenderTransformOrigin="0.5,0.5">
+  <!-- The margin is room for the shadow to bleed into (and for the entrance slide, which
+       starts 12px outside the resting position); the transform is the entrance. -->
+  <Grid x:Name="Root" Margin="12,12,12,16" RenderTransformOrigin="0.5,0.5">
     <Grid.RenderTransform>
       <TransformGroup>
         <ScaleTransform x:Name="EntranceScale" ScaleX="1" ScaleY="1" />
@@ -33,12 +34,16 @@
       </TransformGroup>
     </Grid.RenderTransform>
 
-    <!-- The shadow is cast by an empty sibling rather than by the pill itself, so the blur is
-         re-rendered only when the pill changes size — not on every frame the waveform moves. -->
-    <Border x:Name="Shadow" CornerRadius="26" Background="#B0101018">
-      <Border.Effect>
-        <DropShadowEffect BlurRadius="24" ShadowDepth="6" Direction="270" Opacity="0.55" Color="#FF000000" />
-      </Border.Effect>
+    <!-- The shadow is cast by an empty sibling element rather than by the pill itself, and that
+         element sits inside a bitmap cache: the blur is rasterised once and reused until the pill
+         changes size, instead of being recomputed on every frame the waveform moves. The cache
+         has to be on an ancestor of the element that carries the effect. -->
+    <Border CacheMode="BitmapCache">
+      <Border x:Name="Shadow" CornerRadius="26" Background="#B0101018">
+        <Border.Effect>
+          <DropShadowEffect BlurRadius="24" ShadowDepth="6" Direction="270" Opacity="0.55" Color="#FF000000" />
+        </Border.Effect>
+      </Border>
     </Border>
 
     <!-- Gradient ring; the brush is built in code so its rotation can be animated. -->

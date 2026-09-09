@@ -576,17 +576,24 @@
                          Text="ค้นหา → แทนที่ สำหรับคำที่ถอดผิดซ้ำ ๆ ทำงานตามลำดับจากบนลงล่าง" />
             </StackPanel>
 
+            <!-- Column types carry their own element styles, which would otherwise bypass the
+                 themed TextBox and toggle templates and show stock white editors in dark mode. -->
             <DataGrid Grid.Row="1"
                       ItemsSource="{Binding Replacements}"
                       AutoGenerateColumns="False"
                       CanUserAddRows="False"
-                      CanUserDeleteRows="True">
+                      CanUserDeleteRows="True"
+                      CanUserResizeColumns="False">
               <DataGrid.Columns>
                 <DataGridTextColumn Header="ค้นหา" Width="*"
+                                    EditingElementStyle="{StaticResource {x:Type TextBox}}"
                                     Binding="{Binding Find, UpdateSourceTrigger=LostFocus}" />
                 <DataGridTextColumn Header="แทนที่ด้วย" Width="*"
+                                    EditingElementStyle="{StaticResource {x:Type TextBox}}"
                                     Binding="{Binding Replace, UpdateSourceTrigger=LostFocus}" />
                 <DataGridCheckBoxColumn Header="ตรงตัวพิมพ์" Width="110"
+                                        ElementStyle="{StaticResource {x:Type CheckBox}}"
+                                        EditingElementStyle="{StaticResource {x:Type CheckBox}}"
                                         Binding="{Binding MatchCase, UpdateSourceTrigger=PropertyChanged}" />
               </DataGrid.Columns>
             </DataGrid>

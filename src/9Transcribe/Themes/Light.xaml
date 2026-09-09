@@ -5,7 +5,7 @@
   <SolidColorBrush x:Key="BgCard" Color="#D9FFFFFF" />
   <SolidColorBrush x:Key="BgInput" Color="#F2FFFFFF" />
   <SolidColorBrush x:Key="FgPrimary" Color="#FF16181D" />
-  <SolidColorBrush x:Key="FgSecondary" Color="#FF6B7280" />
+  <SolidColorBrush x:Key="FgSecondary" Color="#FF5B6170" />
   <SolidColorBrush x:Key="Accent" Color="#FF7C3AED" />
   <SolidColorBrush x:Key="AccentSoft" Color="#FFEDE9FE" />
   <SolidColorBrush x:Key="Danger" Color="#FFDC2626" />

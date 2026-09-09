@@ -130,8 +130,15 @@ public partial class SettingsWindow : Window
     {
         // Setting SelectedIndex in XAML can raise this before the constructor has built the
         // page table; the constructor shows the first page itself once everything exists.
-        if (_pages is null || Nav.SelectedIndex < 0)
+        if (_pages is null)
         {
+            return;
+        }
+
+        if (Nav.SelectedIndex < 0)
+        {
+            // Ctrl+clicking the selected item deselects it; the page must keep its highlight.
+            Nav.SelectedIndex = Math.Max(_currentPage, 0);
             return;
         }
 

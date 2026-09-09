@@ -15,8 +15,8 @@
 
 
   <!-- Interaction states and chrome -->
-  <SolidColorBrush x:Key="BgHover" Color="#14FFFFFF" />
-  <SolidColorBrush x:Key="BgPressed" Color="#0AFFFFFF" />
+  <SolidColorBrush x:Key="BgHover" Color="#1FFFFFFF" />
+  <SolidColorBrush x:Key="BgPressed" Color="#0FFFFFFF" />
   <SolidColorBrush x:Key="BgSelected" Color="#FF2E1F5E" />
   <SolidColorBrush x:Key="BgPopup" Color="#FF24252B" />
   <SolidColorBrush x:Key="ControlBorder" Color="#FF3B3D45" />
