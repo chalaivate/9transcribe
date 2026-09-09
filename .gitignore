@@ -10,3 +10,6 @@ publish/
 *.log
 TestResults/
 __pycache__/
+
+# Icon previews from tools/make_icons.py --preview
+src/9Transcribe/Assets/*-preview.png
