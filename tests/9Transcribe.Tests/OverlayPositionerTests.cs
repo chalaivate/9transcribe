@@ -38,7 +38,8 @@ public sealed class OverlayPositionerTests
     [Fact]
     public void Compute_WithNoTopPart_PutsTheWindowTopOnTheLine()
     {
-        (_, int y) = OverlayPositioner.Compute(Left, Top, Right, Bottom, Width, Height, 0, 90);
+        // A tab short enough to fit in the 104 px below the line.
+        (_, int y) = OverlayPositioner.Compute(Left, Top, Right, Bottom, Width, 100, 0, 90);
 
         Assert.Equal(936, y);
     }
