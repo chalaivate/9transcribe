@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace NineTranscribe.Settings;
 
@@ -53,9 +54,15 @@ public sealed class AppSettings
 
     public bool CollapseSpaces { get; set; } = true;
 
-    public OverlayPosition OverlayPosition { get; set; } = OverlayPosition.Bottom;
+    /// <summary>
+    /// The guide line the overlay hangs from, as a percentage of the work area's height from
+    /// the top. The listening tab sits just below it, transcribed text just above it.
+    /// </summary>
+    public int OverlayBaselinePercent { get; set; } = 90;
 
     public bool ShowOverlay { get; set; } = true;
+
+    public TranscriptStyle Transcript { get; set; } = new();
 
     public VadSettings Vad { get; set; } = new();
 
@@ -107,8 +114,9 @@ public sealed class AppSettings
             ForceClipboardProcesses = new List<string>(ForceClipboardProcesses),
             TrailingText = TrailingText,
             CollapseSpaces = CollapseSpaces,
-            OverlayPosition = OverlayPosition,
+            OverlayBaselinePercent = OverlayBaselinePercent,
             ShowOverlay = ShowOverlay,
+            Transcript = Transcript.Clone(),
             Vad = Vad.Clone(),
             MinUtteranceMs = MinUtteranceMs,
             SegmentOnPause = SegmentOnPause,
@@ -140,6 +148,10 @@ public sealed class AppSettings
         ForceClipboardProcesses ??= new List<string>();
         Vad ??= new VadSettings();
         Vad.Normalize();
+        Transcript ??= new TranscriptStyle();
+        Transcript.Normalize();
+
+        OverlayBaselinePercent = Math.Clamp(OverlayBaselinePercent, 40, 96);
 
         ClipboardRestoreDelayMs = Math.Clamp(ClipboardRestoreDelayMs, 0, 5000);
         TypingIntervalMs = Math.Clamp(TypingIntervalMs, 0, 50);
@@ -149,6 +161,47 @@ public sealed class AppSettings
         MaxRecordingSeconds = Math.Clamp(MaxRecordingSeconds, 5, 720);
         ApiTimeoutSeconds = Math.Clamp(ApiTimeoutSeconds, 5, 300);
         HistoryMaxItems = Math.Clamp(HistoryMaxItems, 1, 200);
+    }
+}
+
+/// <summary>How the transcribed text above the guide line looks.</summary>
+public sealed class TranscriptStyle
+{
+    public const string DefaultBackgroundColor = "#1A1A24";
+    public const string DefaultTextColor = "#FFFFFF";
+    public const int MinFontSize = 14;
+    public const int MaxFontSize = 64;
+
+    private static readonly Regex HexColor = new("^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$", RegexOptions.Compiled);
+
+    public bool Show { get; set; } = true;
+
+    /// <summary>Off by default: the text floats on the screen with nothing behind it.</summary>
+    public bool OpaqueBackground { get; set; }
+
+    /// <summary>#RRGGBB or #AARRGGBB.</summary>
+    public string BackgroundColor { get; set; } = DefaultBackgroundColor;
+
+    public string TextColor { get; set; } = DefaultTextColor;
+
+    public int FontSize { get; set; } = 28;
+
+    public static bool IsValidColor(string? value) => value is not null && HexColor.IsMatch(value);
+
+    public TranscriptStyle Clone() => new()
+    {
+        Show = Show,
+        OpaqueBackground = OpaqueBackground,
+        BackgroundColor = BackgroundColor,
+        TextColor = TextColor,
+        FontSize = FontSize,
+    };
+
+    public void Normalize()
+    {
+        BackgroundColor = IsValidColor(BackgroundColor) ? BackgroundColor.ToUpperInvariant() : DefaultBackgroundColor;
+        TextColor = IsValidColor(TextColor) ? TextColor.ToUpperInvariant() : DefaultTextColor;
+        FontSize = Math.Clamp(FontSize, MinFontSize, MaxFontSize);
     }
 }
 

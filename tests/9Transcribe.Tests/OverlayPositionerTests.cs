@@ -1,5 +1,4 @@
 using NineTranscribe.Overlay;
-using NineTranscribe.Settings;
 using Xunit;
 
 namespace NineTranscribe.Tests;
@@ -13,54 +12,70 @@ public sealed class OverlayPositionerTests
     private const int Bottom = 1040;
 
     private const int Width = 400;
-    private const int Height = 80;
-    private const int Margin = 16;
+    private const int Height = 120;
+    private const int TopPart = 30;
+
+    [Fact]
+    public void Compute_CentresHorizontallyAndHangsTheTopPartAboveTheLine()
+    {
+        (int x, int y) = OverlayPositioner.Compute(Left, Top, Right, Bottom, Width, Height, TopPart, 90);
+
+        // 90% of 1040 is 936; the top part ends there, so the window starts 30 px higher.
+        Assert.Equal(760, x);
+        Assert.Equal(906, y);
+    }
 
     [Theory]
-    [InlineData(OverlayPosition.Top, 760, 16)]
-    [InlineData(OverlayPosition.Bottom, 760, 944)]
-    [InlineData(OverlayPosition.Left, 16, 480)]
-    [InlineData(OverlayPosition.Right, 1504, 480)]
-    [InlineData(OverlayPosition.TopLeft, 16, 16)]
-    [InlineData(OverlayPosition.TopRight, 1504, 16)]
-    [InlineData(OverlayPosition.BottomLeft, 16, 944)]
-    [InlineData(OverlayPosition.BottomRight, 1504, 944)]
-    public void Compute_PlacesEveryAnchorOnThePrimaryWorkArea(OverlayPosition anchor, int expectedX, int expectedY)
+    [InlineData(50, 520 - TopPart)]
+    [InlineData(75, 780 - TopPart)]
+    public void Compute_FollowsTheBaselinePercent(int percent, int expectedY)
     {
-        (int x, int y) = OverlayPositioner.Compute(
-            anchor, Left, Top, Right, Bottom, Width, Height, Margin);
+        (_, int y) = OverlayPositioner.Compute(Left, Top, Right, Bottom, Width, Height, TopPart, percent);
 
-        Assert.Equal(expectedX, x);
         Assert.Equal(expectedY, y);
+    }
+
+    [Fact]
+    public void Compute_WithNoTopPart_PutsTheWindowTopOnTheLine()
+    {
+        (_, int y) = OverlayPositioner.Compute(Left, Top, Right, Bottom, Width, Height, 0, 90);
+
+        Assert.Equal(936, y);
+    }
+
+    [Fact]
+    public void Compute_NearTheBottom_KeepsTheWholeWindowOnScreen()
+    {
+        // A line at 96% leaves 42 px below it, less than the window's height.
+        (_, int y) = OverlayPositioner.Compute(Left, Top, Right, Bottom, Width, Height, TopPart, 96);
+
+        Assert.Equal(Bottom - Height, y);
+    }
+
+    [Fact]
+    public void Compute_WithATopPartTallerThanTheLineHeight_ClampsToTheTop()
+    {
+        (_, int y) = OverlayPositioner.Compute(Left, Top, Right, Bottom, Width, Height, 700, 40);
+
+        Assert.Equal(Top, y);
     }
 
     [Fact]
     public void Compute_OnAMonitorAtNegativeCoordinates_StaysRelativeToThatRectangle()
     {
         // A second display to the left of the primary one starts at a negative X.
-        (int x, int y) = OverlayPositioner.Compute(
-            OverlayPosition.BottomRight, -1920, 0, 0, 1080, Width, Height, Margin);
+        (int x, int y) = OverlayPositioner.Compute(-1920, 0, 0, 1080, Width, Height, TopPart, 90);
 
-        Assert.Equal(-1920 + 1920 - Width - Margin, x);
-        Assert.Equal(1080 - Height - Margin, y);
-    }
-
-    [Fact]
-    public void Compute_CentresHorizontallyWithinTheWorkArea()
-    {
-        (int x, _) = OverlayPositioner.Compute(
-            OverlayPosition.Bottom, 100, 0, 1100, 1000, Width, Height, Margin);
-
-        Assert.Equal(100 + ((1000 - Width) / 2), x);
+        Assert.Equal(-1920 + ((1920 - Width) / 2), x);
+        Assert.Equal(972 - TopPart, y);
     }
 
     [Fact]
     public void Compute_WithAWindowWiderThanTheScreen_StillReturnsTheLeftEdge()
     {
-        (int x, _) = OverlayPositioner.Compute(
-            OverlayPosition.Bottom, 0, 0, 300, 300, 900, Height, Margin);
+        (int x, _) = OverlayPositioner.Compute(0, 0, 300, 300, 900, Height, TopPart, 90);
 
-        // Negative is correct here: the pill is centred, so it overhangs both sides equally.
+        // Negative is correct here: the window is centred, so it overhangs both sides equally.
         Assert.Equal((300 - 900) / 2, x);
     }
 }

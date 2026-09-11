@@ -1,18 +1,17 @@
 using System.Windows;
 using System.Windows.Interop;
-using NineTranscribe.Settings;
 
 namespace NineTranscribe.Overlay;
 
 /// <summary>
-/// Places the overlay against one of eight anchors on a monitor's work area. All arithmetic is
-/// in physical pixels and goes through SetWindowPos: assigning WPF's Left/Top for a move across
+/// Places the overlay on a guide line that runs across the monitor at a chosen percentage of
+/// the work area's height. The window is centred horizontally; its "top part" (the transcript)
+/// ends on the line and the rest (the listening tab) hangs below it. All arithmetic is in
+/// physical pixels and goes through SetWindowPos: assigning WPF's Left/Top for a move across
 /// monitors of different DPI makes the window land offset while WPF rescales it.
 /// </summary>
 public static class OverlayPositioner
 {
-    private const int MarginDip = 16;
-
     /// <summary>The monitor the user is actually looking at, chosen once per dictation.</summary>
     public static IntPtr MonitorForForegroundWindow()
     {
@@ -43,39 +42,37 @@ public static class OverlayPositioner
     /// integer arithmetic relative to the rectangle, so a monitor at negative coordinates works
     /// exactly like the primary one.
     /// </summary>
+    /// <param name="topPartPx">
+    /// Height of the part of the window that must sit above the guide line. The line itself
+    /// therefore lands <c>topPartPx</c> below the window's top edge.
+    /// </param>
+    /// <param name="baselinePercent">Where the guide line is, as a percentage of the work height from the top.</param>
     public static (int X, int Y) Compute(
-        OverlayPosition anchor,
         int workLeft,
         int workTop,
         int workRight,
         int workBottom,
         int widthPx,
         int heightPx,
-        int marginPx)
+        int topPartPx,
+        int baselinePercent)
     {
-        int x = anchor switch
-        {
-            OverlayPosition.Left or OverlayPosition.TopLeft or OverlayPosition.BottomLeft =>
-                workLeft + marginPx,
-            OverlayPosition.Right or OverlayPosition.TopRight or OverlayPosition.BottomRight =>
-                workRight - widthPx - marginPx,
-            _ => workLeft + ((workRight - workLeft - widthPx) / 2),
-        };
+        int workHeight = workBottom - workTop;
+        int lineY = workTop + (int)Math.Round(workHeight * baselinePercent / 100.0);
 
-        int y = anchor switch
-        {
-            OverlayPosition.Top or OverlayPosition.TopLeft or OverlayPosition.TopRight =>
-                workTop + marginPx,
-            OverlayPosition.Bottom or OverlayPosition.BottomLeft or OverlayPosition.BottomRight =>
-                workBottom - heightPx - marginPx,
-            _ => workTop + ((workBottom - workTop - heightPx) / 2),
-        };
+        // Centred; a window wider than the screen overhangs both sides equally.
+        int x = workLeft + ((workRight - workLeft - widthPx) / 2);
+
+        // Kept on screen: a tall transcript pushes the whole thing up rather than off the top,
+        // and a line very near the bottom pushes it up rather than off the bottom.
+        int lowest = Math.Max(workTop, workBottom - heightPx);
+        int y = Math.Clamp(lineY - topPartPx, workTop, lowest);
 
         return (x, y);
     }
 
-    /// <summary>Moves an already-measured window to its anchor. Position only; WPF owns the size.</summary>
-    public static void Place(Window window, OverlayPosition anchor, IntPtr monitor)
+    /// <summary>Moves an already-measured window onto the guide line. Position only; WPF owns the size.</summary>
+    public static void Place(Window window, int baselinePercent, double topPartDip, IntPtr monitor)
     {
         IntPtr hwnd = new WindowInteropHelper(window).Handle;
         if (hwnd == IntPtr.Zero)
@@ -102,14 +99,14 @@ public static class OverlayPositioner
         }
 
         (int x, int y) = Compute(
-            anchor,
             work.Left,
             work.Top,
             work.Right,
             work.Bottom,
             widthPx,
             heightPx,
-            (int)Math.Round(MarginDip * scale));
+            (int)Math.Round(topPartDip * scale),
+            baselinePercent);
 
         WindowNative.SetWindowPos(
             hwnd,
@@ -121,29 +118,7 @@ public static class OverlayPositioner
             WindowNative.SwpNoSize | WindowNative.SwpNoActivate);
     }
 
-    /// <summary>
-    /// Where the pill starts its entrance, relative to where it ends up: it slides in from the
-    /// screen edge it is anchored to, so a pill at the top drops in and one at the bottom rises.
-    /// Corner anchors move diagonally by the same total distance.
-    /// </summary>
-    public static (double Dx, double Dy) EntranceOffset(OverlayPosition anchor, double distance)
-    {
-        double diagonal = distance * 0.7071;
-        return anchor switch
-        {
-            OverlayPosition.Top => (0, -distance),
-            OverlayPosition.Bottom => (0, distance),
-            OverlayPosition.Left => (-distance, 0),
-            OverlayPosition.Right => (distance, 0),
-            OverlayPosition.TopLeft => (-diagonal, -diagonal),
-            OverlayPosition.TopRight => (diagonal, -diagonal),
-            OverlayPosition.BottomLeft => (-diagonal, diagonal),
-            OverlayPosition.BottomRight => (diagonal, diagonal),
-            _ => (0, distance),
-        };
-    }
-
-    /// <summary>Widest the preview text may be on this monitor, in device-independent pixels.</summary>
+    /// <summary>Widest the transcript may be on this monitor, in device-independent pixels.</summary>
     public static double MaxContentWidthDip(IntPtr monitor)
     {
         if (WindowNative.GetWorkArea(monitor) is not { } work)

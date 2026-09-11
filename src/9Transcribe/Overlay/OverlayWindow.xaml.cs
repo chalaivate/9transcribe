@@ -5,22 +5,37 @@ using System.Windows.Documents;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using NineTranscribe.Settings;
+using NineTranscribe.UI;
 
 namespace NineTranscribe.Overlay;
 
 public partial class OverlayWindow : Window
 {
-    private const int BarCount = 24;
-    private const double BarWidth = 2.5;
-    private const double BarGap = 1.5;
-    private const double BarMinHeight = 3;
-    private const double BarMaxHeight = 22;
+    // The waveform is three travelling sine curves under a sin² envelope, so both ends of
+    // every curve sit on the centre line and the shape fades into the glass. Each curve has
+    // its own wavelength, speed and phase; two run left-to-right and one the other way.
+    private const int WavePoints = 56;
+    private const double WaveWidth = 150;
+    private const double WaveHeight = 30;
+    private const double WaveIdleAmplitude = 1.4;
+    private const double WaveMaxAmplitude = 12.5;
+    private const double WaveTick = 0.033;
+    private static readonly double[] WaveFrequency = { 1.0, 1.45, 0.72 };
+    private static readonly double[] WaveSpeed = { 2.6, -3.3, 1.8 };
+    private static readonly double[] WavePhase = { 0.0, 1.3, 2.7 };
+    private static readonly double[] WaveScale = { 1.0, 0.72, 0.5 };
+    private static readonly double[] WaveThickness = { 2.4, 1.7, 1.2 };
+    private static readonly double[] WaveOpacity = { 1.0, 0.75, 0.5 };
 
-    /// <summary>How far the pill travels during its entrance, in device-independent pixels.</summary>
-    private const double EntranceDistance = 12;
+    /// <summary>How far the overlay rises during its entrance, in device-independent pixels.</summary>
+    private const double EntranceRise = 10;
+
+    /// <summary>Thai stacks vowels and tone marks above the consonant; anything tighter clips them.</summary>
+    private const double TranscriptLineHeightFactor = 1.6;
 
     private static readonly TimeSpan EntranceDuration = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan ExitDuration = TimeSpan.FromMilliseconds(220);
@@ -30,30 +45,31 @@ public partial class OverlayWindow : Window
     private readonly Storyboard _pulse;
     private readonly Storyboard _spin;
     private readonly DispatcherTimer _waveTimer;
-    private readonly Rectangle[] _bars = new Rectangle[BarCount];
-    private readonly double[] _barWeights = new double[BarCount];
-    private readonly double[] _barPhases = new double[BarCount];
-    private readonly double[] _barHeights = new double[BarCount];
+    private readonly DispatcherTimer _clockTimer;
+    private readonly Polyline[] _waves = new Polyline[WaveFrequency.Length];
+    private readonly Polyline _waveGlow;
     private readonly RotateTransform _ringRotation = new(0, 0.5, 0.5);
     private readonly LinearGradientBrush _accentRing;
     private readonly LinearGradientBrush _errorRing;
-    private readonly Color _foreground;
-    private readonly Color _foregroundDim;
+    private readonly DropShadowEffect _textHalo;
 
     private IntPtr _monitor;
     private bool _placing;
     private bool _visible;
     private double _level;
+    private double _smoothedLevel;
     private double _waveClock;
+
+    private int _baselinePercent = 90;
+    private bool _showTranscript = true;
+    private Color _transcriptColor = Colors.White;
+    private string _transcriptShown = string.Empty;
 
     public OverlayWindow(OverlayViewModel viewModel)
     {
         _viewModel = viewModel;
         InitializeComponent();
         DataContext = viewModel;
-
-        _foreground = ((SolidColorBrush)FindResource("PillForeground")).Color;
-        _foregroundDim = ((SolidColorBrush)FindResource("PillForegroundDim")).Color;
 
         _accentRing = BuildRing(
             Color.FromRgb(0x7C, 0x3A, 0xED),
@@ -67,12 +83,24 @@ public partial class OverlayWindow : Window
             Color.FromRgb(0xF8, 0x71, 0x71));
         Ring.BorderBrush = _accentRing;
 
-        BuildWaveform();
+        // A soft dark halo around the letters keeps floating text legible on a white document.
+        _textHalo = new DropShadowEffect
+        {
+            BlurRadius = 10,
+            ShadowDepth = 0,
+            Opacity = 0.85,
+            Color = Colors.Black,
+        };
+
+        _waveGlow = BuildWaveform();
         _pulse = BuildPulse();
         _spin = BuildSpin();
 
         _waveTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
         _waveTimer.Tick += (_, _) => StepWaveform();
+
+        _clockTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _clockTimer.Tick += (_, _) => UpdateElapsed();
 
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.ContentChanged += (_, _) => Reposition();
@@ -81,18 +109,46 @@ public partial class OverlayWindow : Window
 
     public OverlayViewModel ViewModel => _viewModel;
 
-    public OverlayPosition Anchor { get; set; } = OverlayPosition.Bottom;
+    /// <summary>
+    /// Applies the overlay-related settings: where the guide line is and how the transcript
+    /// looks. Safe to call at any time; text already on screen is restyled in place.
+    /// </summary>
+    public void ApplyStyle(AppSettings settings)
+    {
+        TranscriptStyle style = settings.Transcript;
+
+        _baselinePercent = settings.OverlayBaselinePercent;
+        _showTranscript = style.Show;
+        _transcriptColor = ColorHex.Parse(style.TextColor, Colors.White);
+
+        TranscriptText.FontSize = style.FontSize;
+        TranscriptText.LineHeight = Math.Round(style.FontSize * TranscriptLineHeightFactor);
+        TranscriptText.MaxHeight = TranscriptText.LineHeight * 4;
+
+        if (style.OpaqueBackground)
+        {
+            Color background = ColorHex.Parse(style.BackgroundColor, Color.FromRgb(0x1A, 0x1A, 0x24));
+            TranscriptPanel.Background = new SolidColorBrush(background);
+            TranscriptText.Effect = null;
+        }
+        else
+        {
+            TranscriptPanel.Background = Brushes.Transparent;
+            TranscriptText.Effect = _textHalo;
+        }
+
+        SetTranscript(_transcriptShown, animate: false);
+        Reposition();
+    }
 
     /// <summary>
     /// Locks the overlay to the monitor holding the window the user is typing into. Called once
-    /// when recording starts, so the pill does not chase focus mid-dictation.
+    /// when recording starts, so the overlay does not chase focus mid-dictation.
     /// </summary>
     public void AttachToMonitorOfForegroundWindow()
     {
         _monitor = OverlayPositioner.MonitorForForegroundWindow();
-        double maxWidth = OverlayPositioner.MaxContentWidthDip(_monitor);
-        PreviewTextBlock.MaxWidth = maxWidth;
-        ListeningSegmentText.MaxWidth = maxWidth * 0.55;
+        TranscriptPanel.MaxWidth = OverlayPositioner.MaxContentWidthDip(_monitor);
     }
 
     public void Reposition()
@@ -105,9 +161,16 @@ public partial class OverlayWindow : Window
         _placing = true;
         try
         {
-            // ActualWidth is stale until layout runs, and the pill resizes on every state change.
+            // ActualHeight is stale until layout runs, and the transcript grows with its text.
             UpdateLayout();
-            OverlayPositioner.Place(this, Anchor, _monitor);
+
+            double topPart = Root.Margin.Top;
+            if (TranscriptPanel.Visibility == Visibility.Visible)
+            {
+                topPart += TranscriptPanel.ActualHeight + TranscriptPanel.Margin.Bottom;
+            }
+
+            OverlayPositioner.Place(this, _baselinePercent, topPart, _monitor);
         }
         finally
         {
@@ -153,7 +216,7 @@ public partial class OverlayWindow : Window
                 // A sentence typed mid-session arrives as a text change with no state change.
                 if (_viewModel.State == OverlayState.Listening)
                 {
-                    ApplySegmentText();
+                    SetTranscript(_viewModel.PreviewText, animate: true);
                 }
 
                 break;
@@ -164,40 +227,45 @@ public partial class OverlayWindow : Window
     {
         ListeningPanel.Visibility = Visibility.Collapsed;
         ProcessingPanel.Visibility = Visibility.Collapsed;
-        PreviewTextBlock.Visibility = Visibility.Collapsed;
+        DonePanel.Visibility = Visibility.Collapsed;
         MessagePanel.Visibility = Visibility.Collapsed;
         _pulse.Stop(this);
         _spin.Stop(this);
         _waveTimer.Stop();
+        _clockTimer.Stop();
         _ringRotation.BeginAnimation(RotateTransform.AngleProperty, null);
 
         switch (_viewModel.State)
         {
             case OverlayState.Listening:
-                ListeningText.Text = _viewModel.StatusText;
-                ApplySegmentText();
                 ListeningPanel.Visibility = Visibility.Visible;
                 SetChrome(_accentRing, ringOpacity: 1.0, error: false);
                 ResetWaveform();
+                UpdateElapsed();
+                SetTranscript(_viewModel.PreviewText, animate: true);
                 _pulse.Begin(this, true);
                 SpinRing();
                 _waveTimer.Start();
-                ShowPill();
+                _clockTimer.Start();
+                ShowOverlay();
                 break;
 
             case OverlayState.Processing:
                 ProcessingText.Text = _viewModel.StatusText;
                 ProcessingPanel.Visibility = Visibility.Visible;
                 SetChrome(_accentRing, ringOpacity: 0.7, error: false);
+                // The last sentence stays up while the tail of the session is transcribed.
+                SetTranscript(_viewModel.PreviewText, animate: false);
                 _spin.Begin(this, true);
-                ShowPill();
+                ShowOverlay();
                 break;
 
             case OverlayState.Preview:
-                PreviewTextBlock.Visibility = Visibility.Visible;
+                DoneText.Text = _viewModel.StatusText;
+                DonePanel.Visibility = Visibility.Visible;
                 SetChrome(_accentRing, ringOpacity: 0.7, error: false);
-                Reveal(PreviewTextBlock, _viewModel.PreviewText, _foreground, staggerMs: 18);
-                ShowPill();
+                SetTranscript(_viewModel.PreviewText, animate: true);
+                ShowOverlay();
                 break;
 
             case OverlayState.Error:
@@ -208,27 +276,33 @@ public partial class OverlayWindow : Window
                 MessageText.Text = _viewModel.StatusText;
                 MessagePanel.Visibility = Visibility.Visible;
                 SetChrome(error ? _errorRing : _accentRing, ringOpacity: error ? 1.0 : 0.5, error);
-                ShowPill();
+                SetTranscript(string.Empty, animate: false);
+                ShowOverlay();
                 break;
 
             default:
-                HidePill();
+                HideOverlay();
                 break;
         }
     }
 
-    private void ApplySegmentText()
+    /// <summary>
+    /// Puts text above the line, or takes it away when there is none or the user turned the
+    /// transcript off. New text appears piece by piece; a restyle redraws it in place.
+    /// </summary>
+    private void SetTranscript(string text, bool animate)
     {
-        string text = _viewModel.PreviewText;
-        if (text.Length == 0)
+        _transcriptShown = text;
+
+        if (text.Length == 0 || !_showTranscript)
         {
-            ListeningSegmentText.Inlines.Clear();
-            ListeningSegmentText.Visibility = Visibility.Collapsed;
+            TranscriptText.Inlines.Clear();
+            TranscriptPanel.Visibility = Visibility.Collapsed;
             return;
         }
 
-        ListeningSegmentText.Visibility = Visibility.Visible;
-        Reveal(ListeningSegmentText, text, _foregroundDim, staggerMs: 10);
+        TranscriptPanel.Visibility = Visibility.Visible;
+        Reveal(TranscriptText, text, _transcriptColor, animate ? 18 : 0);
     }
 
     private void SetChrome(Brush ring, double ringOpacity, bool error)
@@ -238,10 +312,24 @@ public partial class OverlayWindow : Window
         Pill.Background = (Brush)FindResource(error ? "PillErrorGlassBrush" : "PillGlassBrush");
     }
 
+    private void UpdateElapsed()
+    {
+        TimeSpan elapsed = DateTime.UtcNow - _viewModel.ListeningSince;
+        if (elapsed < TimeSpan.Zero)
+        {
+            elapsed = TimeSpan.Zero;
+        }
+
+        ElapsedText.Text = elapsed.TotalHours >= 1
+            ? elapsed.ToString(@"h\:mm\:ss")
+            : elapsed.ToString(@"m\:ss");
+    }
+
     /// <summary>
     /// Fills a text block with the text as a sequence of small inline pieces that fade in one
     /// after another. Pieces are cut on grapheme clusters, never inside a Thai syllable, so a
-    /// vowel or tone mark can never appear before the consonant it sits on.
+    /// vowel or tone mark can never appear before the consonant it sits on. A stagger of zero
+    /// draws everything at once.
     /// </summary>
     private static void Reveal(TextBlock target, string text, Color color, int staggerMs)
     {
@@ -249,6 +337,14 @@ public partial class OverlayWindow : Window
         IReadOnlyList<string> chunks = TextReveal.Chunks(text);
         if (chunks.Count == 0)
         {
+            return;
+        }
+
+        if (staggerMs <= 0)
+        {
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            target.Inlines.Add(new Run(text) { Foreground = brush });
             return;
         }
 
@@ -270,72 +366,90 @@ public partial class OverlayWindow : Window
         }
     }
 
-    private void BuildWaveform()
+    /// <summary>Creates the curves, back to front, and returns the glow behind the main one.</summary>
+    private Polyline BuildWaveform()
     {
-        var fill = (Brush)FindResource("WaveBarBrush");
-        double centre = (BarCount - 1) / 2.0;
-
-        for (int i = 0; i < BarCount; i++)
+        Brush[] strokes =
         {
-            var bar = new Rectangle
-            {
-                Width = BarWidth,
-                Height = BarMinHeight,
-                RadiusX = BarWidth / 2,
-                RadiusY = BarWidth / 2,
-                Fill = fill,
-            };
-            Canvas.SetLeft(bar, i * (BarWidth + BarGap));
-            Canvas.SetTop(bar, (BarMaxHeight - BarMinHeight) / 2);
-            Waveform.Children.Add(bar);
-            _bars[i] = bar;
-            _barHeights[i] = BarMinHeight;
+            (Brush)FindResource("AccentStaticBrush"),
+            (Brush)FindResource("WaveSecondaryBrush"),
+            (Brush)FindResource("WaveTertiaryBrush"),
+        };
 
-            // A bell curve keeps the middle bars tallest so the shape reads as a waveform rather
-            // than a row of equal sticks; the phase offsets stop neighbours moving in lockstep.
-            double distance = (i - centre) / 6.5;
-            _barWeights[i] = 0.3 + (0.7 * Math.Exp(-distance * distance));
-            _barPhases[i] = i * 0.9;
+        // A wide, faint copy of the main curve underneath reads as light bleeding off it.
+        var glow = new Polyline
+        {
+            Stroke = strokes[0],
+            StrokeThickness = 7,
+            Opacity = 0.22,
+            StrokeLineJoin = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+        };
+        Waveform.Children.Add(glow);
+
+        for (int k = _waves.Length - 1; k >= 0; k--)
+        {
+            var wave = new Polyline
+            {
+                Stroke = strokes[k],
+                StrokeThickness = WaveThickness[k],
+                Opacity = WaveOpacity[k],
+                StrokeLineJoin = PenLineJoin.Round,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+            };
+            Waveform.Children.Add(wave);
+            _waves[k] = wave;
         }
+
+        return glow;
     }
 
     private void ResetWaveform()
     {
-        for (int i = 0; i < BarCount; i++)
-        {
-            _barHeights[i] = BarMinHeight;
-            _bars[i].Height = BarMinHeight;
-            Canvas.SetTop(_bars[i], (BarMaxHeight - BarMinHeight) / 2);
-        }
+        _smoothedLevel = 0;
+        _level = 0;
+        StepWaveform();
     }
 
     /// <summary>
-    /// One animation frame of the waveform. Heights are eased towards their targets by hand
-    /// rather than through animation clocks: twenty-four clocks restarted thirty times a
-    /// second is churn for nothing.
+    /// One animation frame. The points are recomputed and swapped in as a frozen collection:
+    /// cheaper than animation clocks, and the canvas never changes size.
     /// </summary>
     private void StepWaveform()
     {
-        _waveClock += 0.033;
-        double level = _level;
+        _waveClock += WaveTick;
 
-        for (int i = 0; i < BarCount; i++)
+        // Fast attack so the first syllable shows; the view model already slows the decay.
+        _smoothedLevel += (_level - _smoothedLevel) * 0.35;
+        double amplitude = WaveIdleAmplitude + ((WaveMaxAmplitude - WaveIdleAmplitude) * _smoothedLevel);
+
+        for (int k = 0; k < _waves.Length; k++)
         {
-            // A faint ripple keeps the bars alive in silence; a quicker wobble makes speech look
-            // like speech instead of a meter needle.
-            double ripple = 0.10 * (0.5 + (0.5 * Math.Sin((_waveClock * 2.2) + _barPhases[i])));
-            double wobble = 0.78 + (0.22 * Math.Sin((_waveClock * 9.0) + (_barPhases[i] * 1.7)));
-            double drive = Math.Clamp((level * _barWeights[i] * wobble) + (ripple * _barWeights[i]), 0, 1);
-            double target = BarMinHeight + ((BarMaxHeight - BarMinHeight) * drive);
+            // A slow swell per curve keeps the three from ever looking locked together.
+            double swell = 0.86 + (0.14 * Math.Sin((_waveClock * 1.7) + (k * 2.1)));
+            double curveAmplitude = amplitude * WaveScale[k] * swell;
+            double drift = (_waveClock * WaveSpeed[k]) + WavePhase[k];
 
-            double height = _barHeights[i] + ((target - _barHeights[i]) * 0.38);
-            _barHeights[i] = height;
-            _bars[i].Height = height;
-            Canvas.SetTop(_bars[i], (BarMaxHeight - height) / 2);
+            var points = new PointCollection(WavePoints);
+            for (int i = 0; i < WavePoints; i++)
+            {
+                double u = i / (double)(WavePoints - 1);
+                double envelope = Math.Sin(Math.PI * u);
+                envelope *= envelope;
+                double y = (WaveHeight / 2) + (curveAmplitude * envelope * Math.Sin((2 * Math.PI * WaveFrequency[k] * u) + drift));
+                points.Add(new Point(u * WaveWidth, y));
+            }
+
+            points.Freeze();
+            _waves[k].Points = points;
         }
+
+        _waveGlow.Points = _waves[0].Points;
     }
 
-    private void ShowPill()
+    private void ShowOverlay()
     {
         // Other topmost windows created after ours drift above it over time.
         IntPtr hwnd = new WindowInteropHelper(this).Handle;
@@ -363,18 +477,15 @@ public partial class OverlayWindow : Window
             return;
         }
 
-        // Slide in from the edge the pill is anchored to, growing slightly as it arrives.
-        (double dx, double dy) = OverlayPositioner.EntranceOffset(Anchor, EntranceDistance);
+        // Rise into place from just below, growing slightly on the way.
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-
-        EntranceSlide.BeginAnimation(TranslateTransform.XProperty, Ease(dx, 0, EntranceDuration, ease));
-        EntranceSlide.BeginAnimation(TranslateTransform.YProperty, Ease(dy, 0, EntranceDuration, ease));
+        EntranceSlide.BeginAnimation(TranslateTransform.YProperty, Ease(EntranceRise, 0, EntranceDuration, ease));
         EntranceScale.BeginAnimation(ScaleTransform.ScaleXProperty, Ease(0.96, 1, EntranceDuration, ease));
         EntranceScale.BeginAnimation(ScaleTransform.ScaleYProperty, Ease(0.96, 1, EntranceDuration, ease));
         BeginAnimation(OpacityProperty, Ease(0, 1, EntranceDuration, ease));
     }
 
-    private void HidePill()
+    private void HideOverlay()
     {
         _visible = false;
         var ease = new CubicEase { EasingMode = EasingMode.EaseIn };

@@ -30,37 +30,34 @@
       <Setter Property="Foreground" Value="{DynamicResource FgPrimary}" />
     </Style>
 
-    <!-- One cell of the 3x3 screen-position picker. -->
-    <Style x:Key="AnchorCell" TargetType="RadioButton">
-      <Setter Property="Width" Value="34" />
+    <!-- A round colour chip; the colour is the button's Tag so the click handler can read it. -->
+    <Style x:Key="Swatch" TargetType="Button">
+      <Setter Property="Width" Value="24" />
       <Setter Property="Height" Value="24" />
-      <Setter Property="Margin" Value="2" />
+      <Setter Property="Margin" Value="0,0,6,0" />
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="Template">
         <Setter.Value>
-          <ControlTemplate TargetType="RadioButton">
-            <Border x:Name="Chrome"
-                    Background="{DynamicResource BgInput}"
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Chrome" CornerRadius="12" BorderThickness="1"
                     BorderBrush="{DynamicResource ControlBorder}"
-                    BorderThickness="1"
-                    CornerRadius="5">
-              <Ellipse x:Name="Dot" Width="7" Height="7"
-                       Fill="{DynamicResource FgSecondary}"
-                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-            </Border>
+                    Background="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" />
             <ControlTemplate.Triggers>
-              <Trigger Property="IsChecked" Value="True">
-                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource AccentGradient}" />
-                <Setter TargetName="Chrome" Property="BorderBrush" Value="Transparent" />
-                <Setter TargetName="Dot" Property="Fill" Value="White" />
-              </Trigger>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                <Setter TargetName="Chrome" Property="BorderThickness" Value="2" />
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
+    </Style>
+
+    <Style x:Key="ColorBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="Width" Value="100" />
+      <Setter Property="FontFamily" Value="Consolas, Segoe UI" />
+      <Setter Property="Margin" Value="0,0,10,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
     <!-- Hotkey buttons light up while the app is waiting for a key. -->
@@ -154,52 +151,27 @@
         <StackPanel Margin="0,0,0,16">
           <TextBlock Style="{StaticResource PageTitle}" Text="ทั่วไป" />
           <TextBlock Style="{StaticResource PageSubtitle}"
-                     Text="ตำแหน่งแถบสถานะ วิธีพิมพ์ข้อความ และการตัดประโยคระหว่างพูด" />
+                     Text="ตำแหน่งแถบสถานะ ข้อความที่ถอดได้ วิธีพิมพ์ข้อความ และการตัดประโยคระหว่างพูด" />
 
           <Border Style="{StaticResource SectionCard}">
             <StackPanel>
               <TextBlock Style="{StaticResource SectionTitle}" Text="แถบสถานะ" />
 
-              <Grid>
+              <TextBlock Style="{StaticResource RowTitle}" Text="เส้นอ้างอิง" />
+              <TextBlock Style="{StaticResource RowHint}"
+                         Text="แท็บสถานะขณะฟังจะอยู่ใต้เส้นนี้ กึ่งกลางจอ ส่วนข้อความที่ถอดได้จะลอยอยู่เหนือเส้น" />
+              <Grid Margin="0,10,0,0">
                 <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="210" />
                   <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="110" />
                 </Grid.ColumnDefinitions>
-                <StackPanel VerticalAlignment="Center">
-                  <TextBlock Style="{StaticResource RowTitle}" Text="ตำแหน่งบนจอ" />
-                  <TextBlock Style="{StaticResource RowHint}" Text="จุดที่แถบสถานะและข้อความที่ถอดได้จะปรากฏ" />
-                </StackPanel>
-                <Grid Grid.Column="1" VerticalAlignment="Center" Margin="20,0,0,0">
-                  <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                  </Grid.RowDefinitions>
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                  </Grid.ColumnDefinitions>
-                  <RadioButton Grid.Row="0" Grid.Column="0" GroupName="Anchor" Style="{StaticResource AnchorCell}"
-                               IsChecked="{Binding IsOverlayTopLeft, Mode=TwoWay}" ToolTip="บนซ้าย" />
-                  <RadioButton Grid.Row="0" Grid.Column="1" GroupName="Anchor" Style="{StaticResource AnchorCell}"
-                               IsChecked="{Binding IsOverlayTop, Mode=TwoWay}" ToolTip="บนกลาง" />
-                  <RadioButton Grid.Row="0" Grid.Column="2" GroupName="Anchor" Style="{StaticResource AnchorCell}"
-                               IsChecked="{Binding IsOverlayTopRight, Mode=TwoWay}" ToolTip="บนขวา" />
-                  <RadioButton Grid.Row="1" Grid.Column="0" GroupName="Anchor" Style="{StaticResource AnchorCell}"
-                               IsChecked="{Binding IsOverlayLeft, Mode=TwoWay}" ToolTip="กลางซ้าย" />
-                  <Border Grid.Row="1" Grid.Column="1" Width="34" Height="24" Margin="2"
-                          Background="Transparent" BorderBrush="{DynamicResource BorderSubtle}"
-                          BorderThickness="1" CornerRadius="5" Opacity="0.5" />
-                  <RadioButton Grid.Row="1" Grid.Column="2" GroupName="Anchor" Style="{StaticResource AnchorCell}"
-                               IsChecked="{Binding IsOverlayRight, Mode=TwoWay}" ToolTip="กลางขวา" />
-                  <RadioButton Grid.Row="2" Grid.Column="0" GroupName="Anchor" Style="{StaticResource AnchorCell}"
-                               IsChecked="{Binding IsOverlayBottomLeft, Mode=TwoWay}" ToolTip="ล่างซ้าย" />
-                  <RadioButton Grid.Row="2" Grid.Column="1" GroupName="Anchor" Style="{StaticResource AnchorCell}"
-                               IsChecked="{Binding IsOverlayBottom, Mode=TwoWay}" ToolTip="ล่างกลาง" />
-                  <RadioButton Grid.Row="2" Grid.Column="2" GroupName="Anchor" Style="{StaticResource AnchorCell}"
-                               IsChecked="{Binding IsOverlayBottomRight, Mode=TwoWay}" ToolTip="ล่างขวา" />
-                </Grid>
+                <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="ตำแหน่งเส้น วัดจากขอบบน" />
+                <Slider Grid.Column="1" Minimum="40" Maximum="96" TickFrequency="1" IsSnapToTickEnabled="True"
+                        Value="{Binding OverlayBaselinePercent, Mode=TwoWay}" />
+                <TextBlock Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           Foreground="{DynamicResource FgSecondary}"
+                           Text="{Binding BaselineText}" />
               </Grid>
 
               <Border Style="{StaticResource RowDivider}" />
@@ -216,6 +188,116 @@
                 <CheckBox Grid.Column="1" VerticalAlignment="Center" Margin="20,0,0,0"
                           IsChecked="{Binding ShowOverlay, Mode=TwoWay}" />
               </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Style="{StaticResource SectionCard}">
+            <StackPanel>
+              <TextBlock Style="{StaticResource SectionTitle}" Text="ข้อความที่ถอดได้" />
+
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                  <TextBlock Style="{StaticResource RowTitle}" Text="แสดงข้อความบนจอ" />
+                  <TextBlock Style="{StaticResource RowHint}" Text="ประโยคที่ถอดได้จะลอยอยู่เหนือเส้นอ้างอิง ปิดแล้วจะเหลือแค่แท็บสถานะ" />
+                </StackPanel>
+                <CheckBox Grid.Column="1" VerticalAlignment="Center" Margin="20,0,0,0"
+                          IsChecked="{Binding TranscriptShow, Mode=TwoWay}" />
+              </Grid>
+
+              <Border Style="{StaticResource RowDivider}" />
+
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                  <TextBlock Style="{StaticResource RowTitle}" Text="พื้นหลังทึบ" />
+                  <TextBlock Style="{StaticResource RowHint}" Text="ปิด = ตัวอักษรลอยบนจอโดยตรง เปิด = มีแผ่นสีรองหลังข้อความ อ่านง่ายบนพื้นสว่าง" />
+                </StackPanel>
+                <CheckBox Grid.Column="1" VerticalAlignment="Center" Margin="20,0,0,0"
+                          IsChecked="{Binding TranscriptOpaqueBackground, Mode=TwoWay}" />
+              </Grid>
+
+              <Border Style="{StaticResource RowDivider}" />
+
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="210" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="สีตัวอักษร" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                  <TextBox Style="{StaticResource ColorBox}"
+                           Text="{Binding TranscriptTextColor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="รหัสสีแบบ #RRGGBB" />
+                  <Button Style="{StaticResource Swatch}" Tag="#FFFFFF" Click="OnTextSwatch" ToolTip="ขาว" />
+                  <Button Style="{StaticResource Swatch}" Tag="#FFE066" Click="OnTextSwatch" ToolTip="เหลือง" />
+                  <Button Style="{StaticResource Swatch}" Tag="#6EE7B7" Click="OnTextSwatch" ToolTip="เขียวมินต์" />
+                  <Button Style="{StaticResource Swatch}" Tag="#93C5FD" Click="OnTextSwatch" ToolTip="ฟ้า" />
+                  <Button Style="{StaticResource Swatch}" Tag="#F9A8D4" Click="OnTextSwatch" ToolTip="ชมพู" />
+                  <Button Style="{StaticResource Swatch}" Tag="#F97316" Click="OnTextSwatch" ToolTip="ส้ม" />
+                  <Button Style="{StaticResource Swatch}" Tag="#111111" Click="OnTextSwatch" ToolTip="ดำ" />
+                </StackPanel>
+              </Grid>
+
+              <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="210" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="สีพื้นหลัง (เมื่อเปิดพื้นหลังทึบ)" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                  <TextBox Style="{StaticResource ColorBox}"
+                           Text="{Binding TranscriptBackgroundColor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="รหัสสีแบบ #RRGGBB" />
+                  <Button Style="{StaticResource Swatch}" Tag="#1A1A24" Click="OnBackgroundSwatch" ToolTip="ดำน้ำเงิน" />
+                  <Button Style="{StaticResource Swatch}" Tag="#000000" Click="OnBackgroundSwatch" ToolTip="ดำ" />
+                  <Button Style="{StaticResource Swatch}" Tag="#3B2F6B" Click="OnBackgroundSwatch" ToolTip="ม่วงเข้ม" />
+                  <Button Style="{StaticResource Swatch}" Tag="#1E3A5F" Click="OnBackgroundSwatch" ToolTip="น้ำเงินเข้ม" />
+                  <Button Style="{StaticResource Swatch}" Tag="#7C3AED" Click="OnBackgroundSwatch" ToolTip="ม่วง" />
+                  <Button Style="{StaticResource Swatch}" Tag="#FFFFFF" Click="OnBackgroundSwatch" ToolTip="ขาว" />
+                </StackPanel>
+              </Grid>
+
+              <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="210" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="110" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="ขนาดตัวอักษร" />
+                <Slider Grid.Column="1" Minimum="14" Maximum="64" TickFrequency="1" IsSnapToTickEnabled="True"
+                        Value="{Binding TranscriptFontSize, Mode=TwoWay}" />
+                <TextBlock Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           Foreground="{DynamicResource FgSecondary}"
+                           Text="{Binding TranscriptFontSize, StringFormat={}{0} px}" />
+              </Grid>
+
+              <!-- Live preview on a wallpaper-like backdrop, so the colours read as they will on screen. -->
+              <Border Margin="0,14,0,0" CornerRadius="8" Padding="20,18" MinHeight="90">
+                <Border.Background>
+                  <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                    <GradientStop Color="#FF2E4A8C" Offset="0" />
+                    <GradientStop Color="#FF6A4C93" Offset="0.55" />
+                    <GradientStop Color="#FFB56576" Offset="1" />
+                  </LinearGradientBrush>
+                </Border.Background>
+                <Border HorizontalAlignment="Center" VerticalAlignment="Center" CornerRadius="12" Padding="16,8"
+                        Background="{Binding TranscriptPreviewBackground}">
+                  <TextBlock Text="สวัสดีครับ วันนี้เรียน Power BI กัน"
+                             FontFamily="Leelawadee UI, Segoe UI"
+                             FontSize="{Binding TranscriptFontSize}"
+                             LineHeight="{Binding TranscriptPreviewLineHeight}"
+                             LineStackingStrategy="BlockLineHeight"
+                             TextAlignment="Center"
+                             Foreground="{Binding TranscriptPreviewForeground}" />
+                </Border>
+              </Border>
             </StackPanel>
           </Border>
 

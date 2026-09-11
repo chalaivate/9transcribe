@@ -222,6 +222,22 @@ public partial class SettingsWindow : Window
         RevealKeyButton.Content = "แสดง";
     }
 
+    private void OnTextSwatch(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string hex })
+        {
+            _viewModel.SetTranscriptTextColor(hex);
+        }
+    }
+
+    private void OnBackgroundSwatch(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string hex })
+        {
+            _viewModel.SetTranscriptBackgroundColor(hex);
+        }
+    }
+
     private void OnOpenGitHub(object sender, RoutedEventArgs e)
     {
         try

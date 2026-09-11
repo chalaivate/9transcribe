@@ -1,5 +1,4 @@
 using NineTranscribe.Overlay;
-using NineTranscribe.Settings;
 using Xunit;
 
 namespace NineTranscribe.Tests;
@@ -38,20 +37,5 @@ public sealed class TextRevealTests
     public void Chunks_EmptyText_HasNoPieces()
     {
         Assert.Empty(TextReveal.Chunks(string.Empty));
-    }
-
-    [Theory]
-    [InlineData(OverlayPosition.Top, 0, -1)]
-    [InlineData(OverlayPosition.Bottom, 0, 1)]
-    [InlineData(OverlayPosition.Left, -1, 0)]
-    [InlineData(OverlayPosition.Right, 1, 0)]
-    [InlineData(OverlayPosition.TopRight, 1, -1)]
-    [InlineData(OverlayPosition.BottomLeft, -1, 1)]
-    public void EntranceOffset_PointsTowardsTheAnchoredEdge(OverlayPosition anchor, int signX, int signY)
-    {
-        (double dx, double dy) = OverlayPositioner.EntranceOffset(anchor, 12);
-
-        Assert.Equal(signX, Math.Sign(dx));
-        Assert.Equal(signY, Math.Sign(dy));
     }
 }

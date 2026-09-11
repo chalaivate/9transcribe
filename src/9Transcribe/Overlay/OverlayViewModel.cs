@@ -34,6 +34,7 @@ public sealed class OverlayViewModel : ObservableObject
     private string _previewText = string.Empty;
     private string _statusText = string.Empty;
     private bool _isToggleMode;
+    private DateTime _listeningSince;
 
     public OverlayViewModel()
     {
@@ -62,7 +63,7 @@ public sealed class OverlayViewModel : ObservableObject
 
     public bool IsVisible => _state != OverlayState.Hidden;
 
-    /// <summary>Smoothed microphone level, 0 to 1, driving the bars next to the record dot.</summary>
+    /// <summary>Smoothed microphone level, 0 to 1, driving the waveform in the tab.</summary>
     public double Level
     {
         get => _level;
@@ -87,15 +88,21 @@ public sealed class OverlayViewModel : ObservableObject
         private set => SetProperty(ref _isToggleMode, value);
     }
 
+    /// <summary>When the current listening session began; the tab counts up from it.</summary>
+    public DateTime ListeningSince
+    {
+        get => _listeningSince;
+        private set => SetProperty(ref _listeningSince, value);
+    }
+
     public void ShowListening(bool toggleMode)
     {
         _timer.Stop();
         IsToggleMode = toggleMode;
         Level = 0;
         PreviewText = string.Empty;
-        StatusText = toggleMode
-            ? "กำลังฟัง… (กดปุ่มอีกครั้งเพื่อหยุด)"
-            : "กำลังฟัง… (ปล่อยปุ่มเพื่อหยุด)";
+        ListeningSince = DateTime.UtcNow;
+        StatusText = "Listening";
         State = OverlayState.Listening;
         ContentChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -103,7 +110,7 @@ public sealed class OverlayViewModel : ObservableObject
     public void ShowProcessing()
     {
         _timer.Stop();
-        StatusText = "กำลังถอดเสียง…";
+        StatusText = "Transcribing…";
         State = OverlayState.Processing;
         ContentChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -111,7 +118,7 @@ public sealed class OverlayViewModel : ObservableObject
     public void ShowRetrying()
     {
         _timer.Stop();
-        StatusText = "กำลังลองใหม่…";
+        StatusText = "Retrying…";
         State = OverlayState.Processing;
         ContentChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -120,7 +127,7 @@ public sealed class OverlayViewModel : ObservableObject
     {
         _timer.Stop();
         PreviewText = TranscriptPostProcessor.ForPreview(text.Trim());
-        StatusText = string.Empty;
+        StatusText = "Pasted";
         State = OverlayState.Preview;
         ContentChanged?.Invoke(this, EventArgs.Empty);
 
@@ -134,8 +141,8 @@ public sealed class OverlayViewModel : ObservableObject
 
     /// <summary>
     /// Shows a sentence that has just been typed while the session keeps running. Unlike
-    /// <see cref="ShowPreview"/> this stays in the listening state, so the level bars keep
-    /// moving and no auto-hide timer takes the pill away mid-session.
+    /// <see cref="ShowPreview"/> this stays in the listening state, so the waveform keeps
+    /// moving and no auto-hide timer takes the tab away mid-session.
     /// </summary>
     public void ShowSegment(string text)
     {
@@ -149,10 +156,10 @@ public sealed class OverlayViewModel : ObservableObject
         ContentChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public void ShowError(string thaiMessage)
+    public void ShowError(string message)
     {
         _timer.Stop();
-        StatusText = thaiMessage;
+        StatusText = message;
         PreviewText = string.Empty;
         State = OverlayState.Error;
         ContentChanged?.Invoke(this, EventArgs.Empty);
@@ -160,10 +167,10 @@ public sealed class OverlayViewModel : ObservableObject
     }
 
     /// <summary>A short neutral message such as "no speech heard".</summary>
-    public void ShowNotice(string thaiMessage)
+    public void ShowNotice(string message)
     {
         _timer.Stop();
-        StatusText = thaiMessage;
+        StatusText = message;
         PreviewText = string.Empty;
         State = OverlayState.Notice;
         ContentChanged?.Invoke(this, EventArgs.Empty);

@@ -21,19 +21,6 @@ public enum TrailingText
     NewLine,
 }
 
-/// <summary>One of eight edge/corner anchors on the working area of a monitor.</summary>
-public enum OverlayPosition
-{
-    Top,
-    Bottom,
-    Left,
-    Right,
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-}
-
 public enum AppTheme
 {
     System,

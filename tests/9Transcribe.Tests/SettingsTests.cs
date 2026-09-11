@@ -36,7 +36,11 @@ public sealed class SettingsTests : IDisposable
         Assert.Equal("th", settings.Language);
         Assert.Equal(InsertionMethod.ClipboardPaste, settings.InsertionMethod);
         Assert.Equal(TrailingText.None, settings.TrailingText);
-        Assert.Equal(OverlayPosition.Bottom, settings.OverlayPosition);
+        Assert.Equal(90, settings.OverlayBaselinePercent);
+        Assert.True(settings.Transcript.Show);
+        Assert.False(settings.Transcript.OpaqueBackground);
+        Assert.Equal("#FFFFFF", settings.Transcript.TextColor);
+        Assert.Equal(28, settings.Transcript.FontSize);
         Assert.Equal(0xA3, settings.Hotkeys.PushToTalk.Vk);
         Assert.Equal(0x77, settings.Hotkeys.Toggle.Vk);
         Assert.Null(store.LoadWarning);
@@ -65,7 +69,10 @@ public sealed class SettingsTests : IDisposable
         settings.CustomVocabulary.Add("9Expert Training");
         settings.Replacements.Add(new ReplacementRuleSetting { Find = "พาวเวอร์บีไอ", Replace = "Power BI" });
         settings.TrailingText = TrailingText.Smart;
-        settings.OverlayPosition = OverlayPosition.TopRight;
+        settings.OverlayBaselinePercent = 75;
+        settings.Transcript.TextColor = "#FFE066";
+        settings.Transcript.FontSize = 36;
+        settings.Transcript.OpaqueBackground = true;
         settings.Vad.HangoverMs = 900;
         settings.Hotkeys.Toggle.Vk = 0x78;
 
@@ -76,7 +83,10 @@ public sealed class SettingsTests : IDisposable
         Assert.Equal(new[] { "Power BI", "9Expert Training" }, reloaded.CustomVocabulary);
         Assert.Equal("Power BI", Assert.Single(reloaded.Replacements).Replace);
         Assert.Equal(TrailingText.Smart, reloaded.TrailingText);
-        Assert.Equal(OverlayPosition.TopRight, reloaded.OverlayPosition);
+        Assert.Equal(75, reloaded.OverlayBaselinePercent);
+        Assert.Equal("#FFE066", reloaded.Transcript.TextColor);
+        Assert.Equal(36, reloaded.Transcript.FontSize);
+        Assert.True(reloaded.Transcript.OpaqueBackground);
         Assert.Equal(900, reloaded.Vad.HangoverMs);
         Assert.Equal(0x78, reloaded.Hotkeys.Toggle.Vk);
     }
@@ -132,8 +142,12 @@ public sealed class SettingsTests : IDisposable
             ApiTimeoutSeconds = 1,
             TypingIntervalMs = 900,
             Temperature = 5,
+            OverlayBaselinePercent = 5,
         };
         settings.Vad.HangoverMs = 99_999;
+        settings.Transcript.FontSize = 999;
+        settings.Transcript.TextColor = "red";
+        settings.Transcript.BackgroundColor = "#abcdef";
 
         settings.Normalize();
 
@@ -142,6 +156,23 @@ public sealed class SettingsTests : IDisposable
         Assert.Equal(50, settings.TypingIntervalMs);
         Assert.Equal(1.0, settings.Temperature);
         Assert.Equal(5000, settings.Vad.HangoverMs);
+        Assert.Equal(40, settings.OverlayBaselinePercent);
+        Assert.Equal(64, settings.Transcript.FontSize);
+        Assert.Equal("#FFFFFF", settings.Transcript.TextColor);
+        Assert.Equal("#ABCDEF", settings.Transcript.BackgroundColor);
+    }
+
+    [Fact]
+    public void Load_WithAnOldPositionField_IgnoresItAndUsesTheBaseline()
+    {
+        var store = new SettingsStore(_directory);
+        File.WriteAllText(store.FilePath, """{ "OverlayPosition": "TopRight", "ShowOverlay": false }""");
+
+        AppSettings settings = store.Load();
+
+        Assert.Equal(90, settings.OverlayBaselinePercent);
+        Assert.False(settings.ShowOverlay);
+        Assert.Null(store.LoadWarning);
     }
 
     [Fact]
@@ -155,5 +186,6 @@ public sealed class SettingsTests : IDisposable
 
         Assert.Single(settings.CustomVocabulary);
         Assert.Equal(2, copy.CustomVocabulary.Count);
+        Assert.NotSame(settings.Transcript, copy.Transcript);
     }
 }

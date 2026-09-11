@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -56,6 +57,8 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     private string _captureHint = string.Empty;
     private string _hotkeyWarning = string.Empty;
     private int _testSecondsLeft;
+    private string _textColorDraft;
+    private string _backgroundColorDraft;
 
     public SettingsViewModel(
         SettingsStore store,
@@ -71,6 +74,8 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         _controller = controller;
         _dispatcher = Dispatcher.CurrentDispatcher;
         _settings = store.Current.Clone();
+        _textColorDraft = _settings.Transcript.TextColor;
+        _backgroundColorDraft = _settings.Transcript.BackgroundColor;
 
         Replacements = new ObservableCollection<ReplacementRow>(
             _settings.Replacements.Select(ReplacementRow.From));
@@ -163,77 +168,119 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
 
     // ---- General ----------------------------------------------------------------
 
-    public OverlayPosition Anchor
+    public int OverlayBaselinePercent
     {
-        get => _settings.OverlayPosition;
+        get => _settings.OverlayBaselinePercent;
         set
         {
-            if (_settings.OverlayPosition == value)
+            int clamped = Math.Clamp(value, 40, 96);
+            if (_settings.OverlayBaselinePercent == clamped)
             {
                 return;
             }
 
-            _settings.OverlayPosition = value;
+            _settings.OverlayBaselinePercent = clamped;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(IsOverlayTop));
-            OnPropertyChanged(nameof(IsOverlayBottom));
-            OnPropertyChanged(nameof(IsOverlayLeft));
-            OnPropertyChanged(nameof(IsOverlayRight));
-            OnPropertyChanged(nameof(IsOverlayTopLeft));
-            OnPropertyChanged(nameof(IsOverlayTopRight));
-            OnPropertyChanged(nameof(IsOverlayBottomLeft));
-            OnPropertyChanged(nameof(IsOverlayBottomRight));
+            OnPropertyChanged(nameof(BaselineText));
             QueueSave();
         }
     }
 
-    public bool IsOverlayTop
+    public string BaselineText => $"{_settings.OverlayBaselinePercent}% จากขอบบน";
+
+    public bool TranscriptShow
     {
-        get => Anchor == OverlayPosition.Top;
-        set => SetAnchor(value, OverlayPosition.Top);
+        get => _settings.Transcript.Show;
+        set => Assign(value, _settings.Transcript.Show, v => _settings.Transcript.Show = v);
     }
 
-    public bool IsOverlayBottom
+    public bool TranscriptOpaqueBackground
     {
-        get => Anchor == OverlayPosition.Bottom;
-        set => SetAnchor(value, OverlayPosition.Bottom);
+        get => _settings.Transcript.OpaqueBackground;
+        set
+        {
+            Assign(value, _settings.Transcript.OpaqueBackground, v => _settings.Transcript.OpaqueBackground = v);
+            NotifyTranscriptPreview();
+        }
     }
 
-    public bool IsOverlayLeft
+    public int TranscriptFontSize
     {
-        get => Anchor == OverlayPosition.Left;
-        set => SetAnchor(value, OverlayPosition.Left);
+        get => _settings.Transcript.FontSize;
+        set
+        {
+            int clamped = Math.Clamp(value, TranscriptStyle.MinFontSize, TranscriptStyle.MaxFontSize);
+            Assign(clamped, _settings.Transcript.FontSize, v => _settings.Transcript.FontSize = v);
+            NotifyTranscriptPreview();
+        }
     }
 
-    public bool IsOverlayRight
+    /// <summary>
+    /// The text box mirrors what the user typed, valid or not; only a valid colour reaches the
+    /// settings. Snapping the box back mid-keystroke would make it impossible to type one.
+    /// </summary>
+    public string TranscriptTextColor
     {
-        get => Anchor == OverlayPosition.Right;
-        set => SetAnchor(value, OverlayPosition.Right);
+        get => _textColorDraft;
+        set
+        {
+            string draft = value ?? string.Empty;
+            if (_textColorDraft == draft)
+            {
+                return;
+            }
+
+            _textColorDraft = draft;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsTranscriptTextColorValid));
+
+            if (TranscriptStyle.IsValidColor(draft))
+            {
+                Assign(draft.ToUpperInvariant(), _settings.Transcript.TextColor, v => _settings.Transcript.TextColor = v, nameof(TranscriptTextColor));
+                NotifyTranscriptPreview();
+            }
+        }
     }
 
-    public bool IsOverlayTopLeft
+    public bool IsTranscriptTextColorValid => TranscriptStyle.IsValidColor(_textColorDraft);
+
+    public string TranscriptBackgroundColor
     {
-        get => Anchor == OverlayPosition.TopLeft;
-        set => SetAnchor(value, OverlayPosition.TopLeft);
+        get => _backgroundColorDraft;
+        set
+        {
+            string draft = value ?? string.Empty;
+            if (_backgroundColorDraft == draft)
+            {
+                return;
+            }
+
+            _backgroundColorDraft = draft;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsTranscriptBackgroundColorValid));
+
+            if (TranscriptStyle.IsValidColor(draft))
+            {
+                Assign(draft.ToUpperInvariant(), _settings.Transcript.BackgroundColor, v => _settings.Transcript.BackgroundColor = v, nameof(TranscriptBackgroundColor));
+                NotifyTranscriptPreview();
+            }
+        }
     }
 
-    public bool IsOverlayTopRight
-    {
-        get => Anchor == OverlayPosition.TopRight;
-        set => SetAnchor(value, OverlayPosition.TopRight);
-    }
+    public bool IsTranscriptBackgroundColorValid => TranscriptStyle.IsValidColor(_backgroundColorDraft);
 
-    public bool IsOverlayBottomLeft
-    {
-        get => Anchor == OverlayPosition.BottomLeft;
-        set => SetAnchor(value, OverlayPosition.BottomLeft);
-    }
+    public Brush TranscriptPreviewForeground =>
+        new SolidColorBrush(ColorHex.Parse(_settings.Transcript.TextColor, Colors.White));
 
-    public bool IsOverlayBottomRight
-    {
-        get => Anchor == OverlayPosition.BottomRight;
-        set => SetAnchor(value, OverlayPosition.BottomRight);
-    }
+    public Brush TranscriptPreviewBackground => _settings.Transcript.OpaqueBackground
+        ? new SolidColorBrush(ColorHex.Parse(_settings.Transcript.BackgroundColor, Color.FromRgb(0x1A, 0x1A, 0x24)))
+        : Brushes.Transparent;
+
+    public double TranscriptPreviewLineHeight => Math.Round(_settings.Transcript.FontSize * 1.6);
+
+    public void SetTranscriptTextColor(string hex) => TranscriptTextColor = hex;
+
+    public void SetTranscriptBackgroundColor(string hex) => TranscriptBackgroundColor = hex;
 
     public bool ShowOverlay
     {
@@ -666,14 +713,6 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         _testCountdown.Stop();
     }
 
-    private void SetAnchor(bool selected, OverlayPosition position)
-    {
-        if (selected)
-        {
-            Anchor = position;
-        }
-    }
-
     private void Assign<T>(T value, T current, Action<T> apply, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(value, current))
@@ -684,6 +723,13 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         apply(value);
         OnPropertyChanged(propertyName);
         QueueSave();
+    }
+
+    private void NotifyTranscriptPreview()
+    {
+        OnPropertyChanged(nameof(TranscriptPreviewForeground));
+        OnPropertyChanged(nameof(TranscriptPreviewBackground));
+        OnPropertyChanged(nameof(TranscriptPreviewLineHeight));
     }
 
     private void QueueSave()

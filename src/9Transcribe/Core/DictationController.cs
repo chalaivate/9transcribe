@@ -114,7 +114,7 @@ public sealed class DictationController : IDisposable
         _hotkeys.Toggle = settings.Hotkeys.Toggle;
         _hotkeys.MaxHoldSeconds = settings.MaxRecordingSeconds;
 
-        _overlayWindow.Anchor = settings.OverlayPosition;
+        RunOnUi(() => _overlayWindow.ApplyStyle(settings));
 
         _history.IsEnabled = settings.HistoryEnabled;
         _history.MaxItems = settings.HistoryMaxItems;
@@ -411,11 +411,11 @@ public sealed class DictationController : IDisposable
             // said has already been typed — that is a normal finish, not a failed dictation.
             if (e.SegmentCount == 0)
             {
-                ShowOverlay(o => o.ShowNotice("ไม่พบเสียงพูด"), CurrentSequence);
+                ShowOverlay(o => o.ShowNotice("No speech detected"), CurrentSequence);
             }
             else if (e.Reason == StopReason.IdleTimeout)
             {
-                ShowOverlay(o => o.ShowNotice("หยุดอัตโนมัติเพราะไม่มีเสียงพูด"), CurrentSequence);
+                ShowOverlay(o => o.ShowNotice("Stopped after a long silence"), CurrentSequence);
             }
             else
             {
@@ -483,7 +483,7 @@ public sealed class DictationController : IDisposable
             string text = TranscriptPostProcessor.Process(result.Text, settings);
             if (text.Length == 0)
             {
-                ShowOverlay(o => o.ShowNotice("ไม่พบข้อความ"), sequence);
+                ShowOverlay(o => o.ShowNotice("No text"), sequence);
                 return;
             }
 
@@ -527,7 +527,7 @@ public sealed class DictationController : IDisposable
 
                 default:
                     ShowOverlay(
-                        o => o.ShowError(insertion.UserMessageThai ?? "วางข้อความไม่สำเร็จ"),
+                        o => o.ShowError(insertion.UserMessageThai ?? "Paste failed"),
                         sequence);
                     break;
             }
@@ -542,7 +542,7 @@ public sealed class DictationController : IDisposable
 
             if (ex.Kind == TranscriptionErrorKind.AudioTooShort)
             {
-                ShowOverlay(o => o.ShowNotice("ไม่พบเสียงพูด"), sequence);
+                ShowOverlay(o => o.ShowNotice("No speech detected"), sequence);
             }
             else
             {
@@ -553,7 +553,7 @@ public sealed class DictationController : IDisposable
         {
             Log.Error("Dictation pipeline failed", ex);
             ShowOverlay(
-                o => o.ShowError("เกิดข้อผิดพลาดที่ไม่คาดคิด กรุณาดูรายละเอียดใน log"),
+                o => o.ShowError("Unexpected error — see the log for details"),
                 sequence);
         }
         finally

@@ -119,7 +119,8 @@ public partial class App : Application
         _history.Load();
 
         var overlayViewModel = new OverlayViewModel();
-        _overlayWindow = new OverlayWindow(overlayViewModel) { Anchor = settings.OverlayPosition };
+        _overlayWindow = new OverlayWindow(overlayViewModel);
+        _overlayWindow.ApplyStyle(settings);
         // Shown once at startup and kept alive: the window is invisible until a state change,
         // and creating it up front avoids first-show jank in the middle of a dictation.
         _overlayWindow.Show();
