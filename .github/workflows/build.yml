@@ -31,6 +31,8 @@ jobs:
         run: dotnet test tests/9Transcribe.Tests/9Transcribe.Tests.csproj -c Release --no-build --verbosity normal
 
       # Portable: carries the whole .NET runtime, runs on any 64-bit Windows with nothing installed.
+      # Deliberately uncompressed: a compressed bundle is unpacked into private memory at start-up
+      # (measured: ~98 MB private working set against ~16 MB), while the download is zipped anyway.
       - name: Publish Portable
         run: >
           dotnet publish src/9Transcribe/9Transcribe.csproj
@@ -38,7 +40,7 @@ jobs:
           -r win-x64
           --self-contained true
           -p:PublishSingleFile=true
-          -p:EnableCompressionInSingleFile=true
+          -p:EnableCompressionInSingleFile=false
           -o publish/portable
 
       # Lite: just the app; uses the .NET Desktop Runtime installed on the machine.
@@ -52,15 +54,15 @@ jobs:
           -o publish/lite
 
       # Only for the memory comparison below; not uploaded.
-      - name: Publish Portable without compression (comparison only)
+      - name: Publish compressed Portable (comparison only)
         run: >
           dotnet publish src/9Transcribe/9Transcribe.csproj
           -c Release
           -r win-x64
           --self-contained true
           -p:PublishSingleFile=true
-          -p:EnableCompressionInSingleFile=false
-          -o publish/portable-uncompressed
+          -p:EnableCompressionInSingleFile=true
+          -o publish/portable-compressed
 
       - name: Report artifact sizes and hashes
         shell: pwsh
@@ -77,8 +79,8 @@ jobs:
         shell: pwsh
         run: |
           ./tools/measure-memory.ps1 -Header -Label 'Portable' -Path publish/portable/9Transcribe.exe
-          ./tools/measure-memory.ps1 -Label 'Portable, uncompressed (not shipped)' -Path publish/portable-uncompressed/9Transcribe.exe
           ./tools/measure-memory.ps1 -Label 'Lite' -Path publish/lite/9Transcribe.exe
+          ./tools/measure-memory.ps1 -Label 'Portable, compressed (not shipped)' -Path publish/portable-compressed/9Transcribe.exe
 
       - uses: actions/upload-artifact@v4
         with:
