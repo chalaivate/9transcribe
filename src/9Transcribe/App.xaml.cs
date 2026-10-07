@@ -38,6 +38,7 @@ public partial class App : Application
     private TrayService? _tray;
     private SettingsWindow? _settingsWindow;
     private SettingsViewModel? _settingsViewModel;
+    private MemoryTrimmer? _trimmer;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -67,6 +68,10 @@ public partial class App : Application
 
         BuildServices(settings);
         StartSignalListener();
+
+        _trimmer = new MemoryTrimmer(() =>
+            _settingsWindow is not null || (_controller?.State ?? DictationState.Idle) != DictationState.Idle);
+        _trimmer.Schedule(TimeSpan.FromSeconds(10));
 
         Log.Info($"9Transcribe started (settings: {_store.FilePath})");
 
@@ -163,9 +168,32 @@ public partial class App : Application
             _settingsViewModel.SettingsApplied += OnSettingsApplied;
 
             _settingsWindow = new SettingsWindow(_settingsViewModel);
+            _settingsWindow.Closed += OnSettingsClosed;
         }
 
         _settingsWindow.ShowOnTab(tabIndex);
+    }
+
+    /// <summary>
+    /// The settings window is rebuilt on every open rather than kept hidden, so everything it
+    /// held — its view model, templates and backdrop — is released here.
+    /// </summary>
+    private void OnSettingsClosed(object? sender, EventArgs e)
+    {
+        if (_settingsWindow is { } window)
+        {
+            window.Closed -= OnSettingsClosed;
+        }
+
+        if (_settingsViewModel is { } viewModel)
+        {
+            viewModel.SettingsApplied -= OnSettingsApplied;
+            viewModel.Dispose();
+        }
+
+        _settingsWindow = null;
+        _settingsViewModel = null;
+        _trimmer?.Schedule(TimeSpan.FromSeconds(3));
     }
 
     private void OnSettingsApplied(object? sender, AppSettings settings)

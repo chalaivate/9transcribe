@@ -47,6 +47,7 @@ public partial class OverlayWindow : Window
     private readonly DropShadowEffect _textHalo;
     private readonly List<Inline> _transcriptTail = new();
     private readonly List<Ellipse> _thinkingDots = new();
+    private readonly List<(TranslateTransform Shift, DoubleAnimation Flow)> _colourFlows = new();
 
     private IntPtr _monitor;
     private bool _placing;
@@ -533,8 +534,12 @@ public partial class OverlayWindow : Window
         IsHitTestVisible = false,
     };
 
-    /// <summary>A repeating gradient whose colours stream along the curve forever.</summary>
-    private static LinearGradientBrush BuildFlowBrush(TimeSpan period, bool reverse, params Color[] colors)
+    /// <summary>
+    /// A repeating gradient whose colours stream along the curve. The animation itself is only
+    /// started while listening: a running clock keeps WPF rendering frames even when nothing
+    /// on screen can show them.
+    /// </summary>
+    private LinearGradientBrush BuildFlowBrush(TimeSpan period, bool reverse, params Color[] colors)
     {
         var shift = new TranslateTransform();
         var brush = new LinearGradientBrush
@@ -551,9 +556,10 @@ public partial class OverlayWindow : Window
             brush.GradientStops.Add(new GradientStop(colors[i], i / (double)(colors.Length - 1)));
         }
 
-        shift.BeginAnimation(
-            TranslateTransform.XProperty,
-            new DoubleAnimation(reverse ? 1 : 0, reverse ? 0 : 1, period) { RepeatBehavior = RepeatBehavior.Forever });
+        _colourFlows.Add((shift, new DoubleAnimation(reverse ? 1 : 0, reverse ? 0 : 1, period)
+        {
+            RepeatBehavior = RepeatBehavior.Forever,
+        }));
         return brush;
     }
 
@@ -576,6 +582,11 @@ public partial class OverlayWindow : Window
             _rendering = true;
             _lastRenderTime = TimeSpan.Zero;
             CompositionTarget.Rendering += OnRendering;
+
+            foreach ((TranslateTransform shift, DoubleAnimation flow) in _colourFlows)
+            {
+                shift.BeginAnimation(TranslateTransform.XProperty, flow);
+            }
         }
     }
 
@@ -588,6 +599,11 @@ public partial class OverlayWindow : Window
 
         _rendering = false;
         CompositionTarget.Rendering -= OnRendering;
+
+        foreach ((TranslateTransform shift, _) in _colourFlows)
+        {
+            shift.BeginAnimation(TranslateTransform.XProperty, null);
+        }
     }
 
     /// <summary>

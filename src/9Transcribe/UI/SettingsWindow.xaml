@@ -814,8 +814,8 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock Style="{StaticResource Glyph}" Text="&#xE7F8;" Foreground="{DynamicResource Accent}" />
                 <StackPanel Grid.Column="1" Margin="14,0,0,0">
-                  <TextBlock Style="{StaticResource RowTitle}" Text=".NET 8 และ WPF" />
-                  <TextBlock Style="{StaticResource RowHint}" Text="แอป Windows แท้ ไฟล์ .exe เดียว ไม่ต้องติดตั้ง" />
+                  <TextBlock Style="{StaticResource RowTitle}" Text=".NET 10 และ WPF" />
+                  <TextBlock Style="{StaticResource RowHint}" Text="แอป Windows แท้ ไฟล์ .exe เดียว มีทั้งรุ่น Lite (เล็กมาก) และ Portable (ไม่ต้องติดตั้งอะไร)" />
                 </StackPanel>
               </Grid>
 

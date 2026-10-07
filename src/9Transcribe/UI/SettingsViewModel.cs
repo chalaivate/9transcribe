@@ -718,6 +718,14 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        // A microphone test still counting down when the window closes is called off rather
+        // than left to run into a recorder nobody is listening to.
+        if (IsTestRecording)
+        {
+            _testCountdown.Stop();
+            _recorder.StopRecording(StopReason.Cancelled);
+        }
+
         StopMonitoring();
         CancelCapture();
 

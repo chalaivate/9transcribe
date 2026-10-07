@@ -110,11 +110,11 @@ public partial class SettingsWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        // The app lives in the tray; closing the window only hides it.
-        e.Cancel = true;
+        // The window really closes: its visual tree, templates and backdrop are a large share
+        // of the app's memory, and the tray app can rebuild it in a moment when asked again.
         _viewModel.StopMonitoring();
         _viewModel.Flush();
-        Hide();
+        base.OnClosing(e);
     }
 
     /// <summary>Reopens the window on the page the caller cares about, e.g. API on first run.</summary>
