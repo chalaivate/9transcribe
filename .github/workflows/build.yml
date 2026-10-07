@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Restore
         run: dotnet restore 9Transcribe.sln
@@ -30,31 +30,81 @@ jobs:
       - name: Test
         run: dotnet test tests/9Transcribe.Tests/9Transcribe.Tests.csproj -c Release --no-build --verbosity normal
 
-      - name: Publish portable exe
+      # Portable: carries the whole .NET runtime, runs on any 64-bit Windows with nothing installed.
+      - name: Publish Portable
         run: >
           dotnet publish src/9Transcribe/9Transcribe.csproj
           -c Release
           -r win-x64
           --self-contained true
           -p:PublishSingleFile=true
-          -o publish
+          -p:EnableCompressionInSingleFile=true
+          -o publish/portable
 
-      - name: Report artifact size and hash
+      # Lite: just the app; uses the .NET Desktop Runtime installed on the machine.
+      - name: Publish Lite
+        run: >
+          dotnet publish src/9Transcribe/9Transcribe.csproj
+          -c Release
+          -r win-x64
+          --self-contained false
+          -p:PublishSingleFile=true
+          -o publish/lite
+
+      # Only for the memory comparison below; not uploaded.
+      - name: Publish Portable without compression (comparison only)
+        run: >
+          dotnet publish src/9Transcribe/9Transcribe.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:EnableCompressionInSingleFile=false
+          -o publish/portable-uncompressed
+
+      - name: Report artifact sizes and hashes
         shell: pwsh
         run: |
-          $exe = Get-Item publish/9Transcribe.exe
-          "size: {0:N1} MB" -f ($exe.Length / 1MB)
-          Get-FileHash $exe.FullName -Algorithm SHA256 | Format-List
+          foreach ($build in 'portable', 'lite') {
+            $exe = Get-Item "publish/$build/9Transcribe.exe"
+            "{0}: {1:N1} MB" -f $build, ($exe.Length / 1MB)
+            Get-FileHash $exe.FullName -Algorithm SHA256 | Format-List
+          }
+
+      # Informational only: a failure here must never block the artifacts.
+      - name: Measure memory
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./tools/measure-memory.ps1 -Header -Label 'Portable' -Path publish/portable/9Transcribe.exe
+          ./tools/measure-memory.ps1 -Label 'Portable, uncompressed (not shipped)' -Path publish/portable-uncompressed/9Transcribe.exe
+          ./tools/measure-memory.ps1 -Label 'Lite' -Path publish/lite/9Transcribe.exe
 
       - uses: actions/upload-artifact@v4
         with:
-          name: 9Transcribe-win-x64
-          path: publish/9Transcribe.exe
+          name: 9Transcribe-portable-win-x64
+          path: publish/portable/9Transcribe.exe
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 9Transcribe-lite-win-x64
+          path: publish/lite/9Transcribe.exe
+          if-no-files-found: error
+
+      - name: Name release files
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item publish/portable/9Transcribe.exe release/9Transcribe-Portable.exe
+          Copy-Item publish/lite/9Transcribe.exe release/9Transcribe-Lite.exe
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: publish/9Transcribe.exe
+          files: |
+            release/9Transcribe-Portable.exe
+            release/9Transcribe-Lite.exe
           generate_release_notes: true

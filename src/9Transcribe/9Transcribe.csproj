@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -15,20 +15,25 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <!-- Publish-time only; see .github/workflows/build.yml for the publish command.
-         RuntimeIdentifier/SelfContained deliberately live on the command line so the
-         test project can still reference this one (NETSDK1150). -->
+    <!-- Publish-time only; see .github/workflows/build.yml for the publish commands.
+         RuntimeIdentifier/SelfContained and single-file compression deliberately live on the
+         command line: the test project must still be able to reference this one (NETSDK1150),
+         and compression is only valid for the self-contained build (NETSDK1176). -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+
+    <!-- A tray app with a small heap: a background GC thread and dynamic PGO instrumentation
+         cost memory for no visible benefit. -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <!-- 2.4.x ships only net10.0-windows and net462, so it silently falls back to the
-         .NET Framework assets on net8.0-windows. 2.3.0 has a real net8.0-windows7.0 build. -->
-    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.3.0" />
+    <!-- 2.4.x ships net10.0-windows and net462 builds only, which is why the .NET 8 version
+         of this app had to stay on 2.3.0. -->
+    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
     <PackageReference Include="NAudio" Version="2.2.1" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>
