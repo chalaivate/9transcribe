@@ -261,7 +261,8 @@ public sealed class DictationController : IDisposable
             settings.MaxRecordingSeconds,
             settings.MinUtteranceMs,
             SegmentOnSilence: settings.SegmentOnPause,
-            IdleStopSeconds: toggleMode ? settings.IdleStopSeconds : 0);
+            IdleStopSeconds: toggleMode ? settings.IdleStopSeconds : 0,
+            MaxSegmentSeconds: settings.MaxSegmentSeconds);
 
         StartOutcome outcome;
         try
@@ -352,6 +353,7 @@ public sealed class DictationController : IDisposable
         }
 
         RefreshState();
+        ShowOverlay(o => o.SegmentQueued(), sequence);
 
         // Claim this segment's place in the queue now, while the order is still known. The
         // pipelines run concurrently and a short sentence overtakes a long one, so without this
@@ -361,7 +363,7 @@ public sealed class DictationController : IDisposable
 
         _ = Task.Run(
             () => RunPipelineAsync(
-                new PipelineInput(e.WavBytes, sequence, previous, mine, IsSegment: true),
+                new PipelineInput(e.WavBytes, sequence, previous, mine, IsSegment: true, e.JoinsPrevious),
                 _shutdown.Token),
             CancellationToken.None);
     }
@@ -408,7 +410,8 @@ public sealed class DictationController : IDisposable
             RefreshState();
 
             // A segmented session that ends just after a pause has an empty tail, and everything
-            // said has already been typed — that is a normal finish, not a failed dictation.
+            // said has already been sent — that is a normal finish, not a failed dictation. The
+            // overlay waits for the pieces still in flight, then shows the whole text as pasted.
             if (e.SegmentCount == 0)
             {
                 ShowOverlay(o => o.ShowNotice("No speech detected"), CurrentSequence);
@@ -419,7 +422,7 @@ public sealed class DictationController : IDisposable
             }
             else
             {
-                ShowOverlay(o => o.HideNow(), CurrentSequence);
+                ShowOverlay(o => o.EndSegmentedSession(), CurrentSequence);
             }
 
             return;
@@ -444,7 +447,7 @@ public sealed class DictationController : IDisposable
         // dictation while the first is still uploading must not throw the first one away.
         _ = Task.Run(
             () => RunPipelineAsync(
-                new PipelineInput(e.WavBytes, sequence, previous, mine, IsSegment: false),
+                new PipelineInput(e.WavBytes, sequence, previous, mine, IsSegment: false, e.JoinsPrevious),
                 _shutdown.Token),
             CancellationToken.None);
     }
@@ -452,19 +455,22 @@ public sealed class DictationController : IDisposable
     /// <summary>One unit of work through the pipeline, and its place in the typing queue.</summary>
     /// <param name="Predecessor">Completes when the previous piece has been typed.</param>
     /// <param name="Completion">Signals the next piece that its turn has come.</param>
+    /// <param name="JoinsPrevious">The recorder cut this piece out of continuous speech.</param>
     private readonly record struct PipelineInput(
         byte[] WavBytes,
         long Sequence,
         Task<ChainState> Predecessor,
         TaskCompletionSource<ChainState> Completion,
-        bool IsSegment);
+        bool IsSegment,
+        bool JoinsPrevious);
 
     /// <summary>
     /// What the queue passes from one piece to the next: which dictation it belonged to, and
     /// whether anything has actually been typed for it yet. The sequence is what stops a new
     /// dictation from being glued onto the previous one's last sentence.
     /// </summary>
-    private readonly record struct ChainState(long Sequence, bool AnyTyped);
+    /// <param name="LastChar">The last character typed for that dictation, to choose the next separator.</param>
+    private readonly record struct ChainState(long Sequence, bool AnyTyped, char? LastChar = null);
 
     private async Task RunPipelineAsync(PipelineInput input, CancellationToken cancellationToken)
     {
@@ -473,6 +479,7 @@ public sealed class DictationController : IDisposable
         ChainState carried = default;
         bool reachedQueue = false;
         bool typed = false;
+        string? typedText = null;
 
         try
         {
@@ -483,7 +490,18 @@ public sealed class DictationController : IDisposable
             string text = TranscriptPostProcessor.Process(result.Text, settings);
             if (text.Length == 0)
             {
-                ShowOverlay(o => o.ShowNotice("No text"), sequence);
+                // A cough or a breath between sentences comes back empty. That is nothing to
+                // report while the user is still talking; only a whole dictation that produced
+                // nothing deserves a notice.
+                if (input.IsSegment)
+                {
+                    Log.Info("A segment was transcribed to nothing");
+                }
+                else
+                {
+                    ShowOverlay(o => o.ShowNotice("No text"), sequence);
+                }
+
                 return;
             }
 
@@ -499,11 +517,16 @@ public sealed class DictationController : IDisposable
             carried = await input.Predecessor.ConfigureAwait(false);
             reachedQueue = true;
 
+            string separator = SeparatorFor(carried, sequence, input.JoinsPrevious, text);
             InsertionResult insertion = await _injector
-                .InsertAsync(SeparatorFor(carried, sequence) + text, cancellationToken)
+                .InsertAsync(separator + text, cancellationToken)
                 .ConfigureAwait(false);
 
             typed = insertion.Outcome == InsertionOutcome.Success;
+            if (typed)
+            {
+                typedText = text;
+            }
 
             switch (insertion.Outcome)
             {
@@ -512,23 +535,25 @@ public sealed class DictationController : IDisposable
                     // preview's own auto-hide would take the pill away mid-sentence.
                     if (input.IsSegment)
                     {
-                        ShowOverlay(o => o.ShowSegment(text), sequence);
+                        ShowOverlay(o => o.ShowSegment(separator, text), sequence);
                     }
                     else
                     {
-                        ShowOverlay(o => o.ShowPreview(text), sequence);
+                        ShowOverlay(o => o.ShowPreview(text, separator), sequence);
                     }
 
                     break;
 
                 case InsertionOutcome.Cancelled:
-                    ShowOverlay(o => o.HideNow(), sequence);
+                    if (!input.IsSegment)
+                    {
+                        ShowOverlay(o => o.HideNow(), sequence);
+                    }
+
                     break;
 
                 default:
-                    ShowOverlay(
-                        o => o.ShowError(insertion.UserMessageThai ?? "Paste failed"),
-                        sequence);
+                    ShowProblem(input, insertion.UserMessageThai ?? "Paste failed", sequence);
                     break;
             }
         }
@@ -542,22 +567,28 @@ public sealed class DictationController : IDisposable
 
             if (ex.Kind == TranscriptionErrorKind.AudioTooShort)
             {
-                ShowOverlay(o => o.ShowNotice("No speech detected"), sequence);
+                if (!input.IsSegment)
+                {
+                    ShowOverlay(o => o.ShowNotice("No speech detected"), sequence);
+                }
             }
             else
             {
-                ShowOverlay(o => o.ShowError(ex.UserMessageThai), sequence);
+                ShowProblem(input, ex.UserMessageThai, sequence);
             }
         }
         catch (Exception ex)
         {
             Log.Error("Dictation pipeline failed", ex);
-            ShowOverlay(
-                o => o.ShowError("Unexpected error — see the log for details"),
-                sequence);
+            ShowProblem(input, "Unexpected error — see the log for details", sequence);
         }
         finally
         {
+            if (input.IsSegment)
+            {
+                ShowOverlay(o => o.SegmentSettled(), sequence);
+            }
+
             // Always release the next piece, even after a failure: one sentence that could not
             // be transcribed must not strand the rest of the session behind it. A piece that
             // failed before reaching the queue still has to wait its turn, or it would hand the
@@ -567,8 +598,10 @@ public sealed class DictationController : IDisposable
                 carried = await WaitForTurnAsync(input.Predecessor).ConfigureAwait(false);
             }
 
-            bool anyTyped = (carried.Sequence == sequence && carried.AnyTyped) || typed;
-            input.Completion.TrySetResult(new ChainState(sequence, anyTyped));
+            bool sameDictation = carried.Sequence == sequence;
+            bool anyTyped = (sameDictation && carried.AnyTyped) || typed;
+            char? lastChar = typedText is { Length: > 0 } ? typedText[^1] : sameDictation ? carried.LastChar : null;
+            input.Completion.TrySetResult(new ChainState(sequence, anyTyped, lastChar));
 
             lock (_gate)
             {
@@ -594,12 +627,31 @@ public sealed class DictationController : IDisposable
     }
 
     /// <summary>
-    /// What goes between two sentences of the same dictation. Thai does not space between words,
-    /// but it does between clauses, and without it the sentences run together. A new dictation
-    /// starts clean, so its first sentence never inherits a separator from the last one.
+    /// What goes between two pieces of the same dictation. Thai does not space between words,
+    /// but it does between clauses, and without it the sentences run together — except where
+    /// the recorder had to cut a phrase mid-speech (see <see cref="TranscriptJoiner"/>). A new
+    /// dictation starts clean, so its first piece never inherits a separator from the last one.
     /// </summary>
-    private static string SeparatorFor(ChainState carried, long sequence) =>
-        carried.Sequence == sequence && carried.AnyTyped ? " " : string.Empty;
+    private static string SeparatorFor(ChainState carried, long sequence, bool joinsPrevious, string text) =>
+        carried.Sequence == sequence && carried.AnyTyped
+            ? TranscriptJoiner.Separator(joinsPrevious, carried.LastChar ?? 'x', text)
+            : string.Empty;
+
+    /// <summary>
+    /// A failure in one piece of a dictation that is still running is shown briefly above the
+    /// line and the session carries on; only a failure of the whole dictation replaces the tab.
+    /// </summary>
+    private void ShowProblem(PipelineInput input, string message, long sequence)
+    {
+        if (input.IsSegment)
+        {
+            ShowOverlay(o => o.ShowSegmentProblem(message), sequence);
+        }
+        else
+        {
+            ShowOverlay(o => o.ShowError(message), sequence);
+        }
+    }
 
     private TranscriptionRequestOptions BuildRequestOptions(AppSettings settings)
     {

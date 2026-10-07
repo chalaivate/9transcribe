@@ -363,6 +363,26 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         set => Assign(value, _settings.SegmentOnPause, v => _settings.SegmentOnPause = v);
     }
 
+    public int MaxSegmentSeconds
+    {
+        get => _settings.MaxSegmentSeconds;
+        set
+        {
+            int clamped = Math.Clamp(value, 5, 30);
+            if (_settings.MaxSegmentSeconds == clamped)
+            {
+                return;
+            }
+
+            _settings.MaxSegmentSeconds = clamped;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(MaxSegmentText));
+            QueueSave();
+        }
+    }
+
+    public string MaxSegmentText => $"{_settings.MaxSegmentSeconds} วิ";
+
     public int IdleStopSeconds
     {
         get => _settings.IdleStopSeconds;

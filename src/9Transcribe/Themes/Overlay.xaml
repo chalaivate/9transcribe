@@ -26,19 +26,14 @@
     <GradientStop Color="#00FFFFFF" Offset="1" />
   </LinearGradientBrush>
 
-  <!-- The brand gradient, for the spinner, the main wave and the "done" badge. -->
+  <!-- Neon accents, for the spinner and the "Pasted" badge. The waveform builds its own
+       flowing versions of the same colours in code, because those are animated. -->
   <LinearGradientBrush x:Key="AccentStaticBrush" StartPoint="0,0" EndPoint="1,1">
-    <GradientStop Color="#FF7C3AED" Offset="0" />
-    <GradientStop Color="#FFEC4899" Offset="0.5" />
-    <GradientStop Color="#FFF97316" Offset="1" />
+    <GradientStop Color="#FF22D3EE" Offset="0" />
+    <GradientStop Color="#FF3B82F6" Offset="0.35" />
+    <GradientStop Color="#FF8B5CF6" Offset="0.7" />
+    <GradientStop Color="#FFEC4899" Offset="1" />
   </LinearGradientBrush>
-
-  <LinearGradientBrush x:Key="WaveSecondaryBrush" StartPoint="0,0" EndPoint="1,0">
-    <GradientStop Color="#FFEC4899" Offset="0" />
-    <GradientStop Color="#FFF97316" Offset="1" />
-  </LinearGradientBrush>
-
-  <SolidColorBrush x:Key="WaveTertiaryBrush" Color="#FFFFFFFF" />
 
   <!-- The recording dot is plain red: it is the one universally understood signal. -->
   <LinearGradientBrush x:Key="RecordDotBrush" StartPoint="0,0" EndPoint="1,1">

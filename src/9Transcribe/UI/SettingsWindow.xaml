@@ -397,6 +397,20 @@
                            Text="{Binding VadHangoverSeconds, StringFormat={}{0:0.0} วิ}" />
               </Grid>
 
+              <Grid Margin="0,8,0,0" IsEnabled="{Binding SegmentOnPause}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="210" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="70" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Style="{StaticResource Label}" Text="พูดยาวไม่หยุด ส่งข้อความทุกไม่เกิน" />
+                <Slider Grid.Column="1" Minimum="5" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True"
+                        Value="{Binding MaxSegmentSeconds, Mode=TwoWay}" />
+                <TextBlock Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           Foreground="{DynamicResource FgSecondary}"
+                           Text="{Binding MaxSegmentText}" />
+              </Grid>
+
               <Grid Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="210" />
@@ -412,7 +426,7 @@
               </Grid>
 
               <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0"
-                         Text="ภาษาไทยมีการเว้นจังหวะระหว่างวลีบ่อย ค่าประมาณ 1.2 วินาทีจะไม่ตัดกลางประโยค • โหมดกดสลับจะหยุดเมื่อกดปุ่มอีกครั้งเท่านั้น ยกเว้นเงียบนานเกินค่าด้านบน (0 = ไม่หยุดเอง)" />
+                         Text="ภาษาไทยมีการเว้นจังหวะระหว่างวลีบ่อย ค่าประมาณ 1.2 วินาทีจะไม่ตัดกลางประโยค • ถ้าพูดยาวต่อเนื่อง โปรแกรมจะยอมตัดที่ช่วงเว้นสั้น ๆ หรือจุดที่เสียงเบาที่สุด เพื่อให้ข้อความขึ้นเป็นช่วง ๆ ตามค่าด้านบน • โหมดกดสลับจะหยุดเมื่อกดปุ่มอีกครั้งเท่านั้น ยกเว้นเงียบนานเกินค่าด้านบน (0 = ไม่หยุดเอง)" />
             </StackPanel>
           </Border>
 

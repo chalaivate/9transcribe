@@ -74,6 +74,13 @@ public sealed class AppSettings
     /// </summary>
     public bool SegmentOnPause { get; set; } = true;
 
+    /// <summary>
+    /// While somebody talks without a real pause, hand the speech over at least this often so
+    /// text keeps appearing; see <c>SegmentPacing</c>. Shorter pieces appear sooner but give the
+    /// model less context.
+    /// </summary>
+    public int MaxSegmentSeconds { get; set; } = 10;
+
     /// <summary>Stops a session nobody is talking into. Zero disables it.</summary>
     public int IdleStopSeconds { get; set; } = 60;
 
@@ -120,6 +127,7 @@ public sealed class AppSettings
             Vad = Vad.Clone(),
             MinUtteranceMs = MinUtteranceMs,
             SegmentOnPause = SegmentOnPause,
+            MaxSegmentSeconds = MaxSegmentSeconds,
             IdleStopSeconds = IdleStopSeconds,
             MaxRecordingSeconds = MaxRecordingSeconds,
             ApiTimeoutSeconds = ApiTimeoutSeconds,
@@ -156,6 +164,7 @@ public sealed class AppSettings
         ClipboardRestoreDelayMs = Math.Clamp(ClipboardRestoreDelayMs, 0, 5000);
         TypingIntervalMs = Math.Clamp(TypingIntervalMs, 0, 50);
         MinUtteranceMs = Math.Clamp(MinUtteranceMs, 100, 2000);
+        MaxSegmentSeconds = Math.Clamp(MaxSegmentSeconds, 5, 30);
         IdleStopSeconds = IdleStopSeconds <= 0 ? 0 : Math.Clamp(IdleStopSeconds, 10, 600);
         // 720 s of 16 kHz mono PCM is ~23 MB, just inside the API's 25 MB limit.
         MaxRecordingSeconds = Math.Clamp(MaxRecordingSeconds, 5, 720);

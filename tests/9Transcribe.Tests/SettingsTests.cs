@@ -41,6 +41,7 @@ public sealed class SettingsTests : IDisposable
         Assert.False(settings.Transcript.OpaqueBackground);
         Assert.Equal("#FFFFFF", settings.Transcript.TextColor);
         Assert.Equal(28, settings.Transcript.FontSize);
+        Assert.Equal(10, settings.MaxSegmentSeconds);
         Assert.Equal(0xA3, settings.Hotkeys.PushToTalk.Vk);
         Assert.Equal(0x77, settings.Hotkeys.Toggle.Vk);
         Assert.Null(store.LoadWarning);
@@ -73,6 +74,7 @@ public sealed class SettingsTests : IDisposable
         settings.Transcript.TextColor = "#FFE066";
         settings.Transcript.FontSize = 36;
         settings.Transcript.OpaqueBackground = true;
+        settings.MaxSegmentSeconds = 15;
         settings.Vad.HangoverMs = 900;
         settings.Hotkeys.Toggle.Vk = 0x78;
 
@@ -87,6 +89,7 @@ public sealed class SettingsTests : IDisposable
         Assert.Equal("#FFE066", reloaded.Transcript.TextColor);
         Assert.Equal(36, reloaded.Transcript.FontSize);
         Assert.True(reloaded.Transcript.OpaqueBackground);
+        Assert.Equal(15, reloaded.MaxSegmentSeconds);
         Assert.Equal(900, reloaded.Vad.HangoverMs);
         Assert.Equal(0x78, reloaded.Hotkeys.Toggle.Vk);
     }
@@ -143,6 +146,7 @@ public sealed class SettingsTests : IDisposable
             TypingIntervalMs = 900,
             Temperature = 5,
             OverlayBaselinePercent = 5,
+            MaxSegmentSeconds = 100,
         };
         settings.Vad.HangoverMs = 99_999;
         settings.Transcript.FontSize = 999;
@@ -157,6 +161,7 @@ public sealed class SettingsTests : IDisposable
         Assert.Equal(1.0, settings.Temperature);
         Assert.Equal(5000, settings.Vad.HangoverMs);
         Assert.Equal(40, settings.OverlayBaselinePercent);
+        Assert.Equal(30, settings.MaxSegmentSeconds);
         Assert.Equal(64, settings.Transcript.FontSize);
         Assert.Equal("#FFFFFF", settings.Transcript.TextColor);
         Assert.Equal("#ABCDEF", settings.Transcript.BackgroundColor);

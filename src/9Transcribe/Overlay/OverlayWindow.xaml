@@ -94,13 +94,15 @@
                     </Ellipse>
                   </Grid>
 
-                  <!-- Fixed size on purpose: the curves move thirty times a second, and a panel
-                       that grew with them would re-measure the window on every tick. -->
-                  <Canvas x:Name="Waveform" Width="150" Height="30" Margin="16,0"
+                  <!-- Fixed size on purpose: the curves move every frame, and a panel that grew
+                       with them would re-measure the window on every tick. -->
+                  <Canvas x:Name="Waveform" Width="168" Height="32" Margin="14,0"
                           VerticalAlignment="Center" ClipToBounds="False" />
 
+                  <!-- Tabular figures keep the digits from shuffling sideways every second. -->
                   <TextBlock x:Name="ElapsedText" Text="0:00"
                              FontFamily="Segoe UI" FontSize="14" FontWeight="SemiBold"
+                             Typography.NumeralAlignment="Tabular"
                              MinWidth="42" TextAlignment="Right" VerticalAlignment="Center"
                              Foreground="{StaticResource PillForeground}" />
                 </StackPanel>

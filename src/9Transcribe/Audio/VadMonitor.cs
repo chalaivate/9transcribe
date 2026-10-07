@@ -13,12 +13,39 @@ namespace NineTranscribe.Audio;
 /// <paramref name="SilenceTimeoutReached"/>, this is an edge, so a caller can act once per
 /// sentence and keep recording through the pauses.
 /// </param>
+/// <param name="CutForced">
+/// The utterance was cut at its quietest recent moment because it ran too long without a
+/// pause, not because the speaker stopped. Speech carries on past the cut.
+/// </param>
 public readonly record struct VadFrameResult(
     double RmsDbfs,
     double PeakDbfs,
     bool IsSpeech,
     bool SilenceTimeoutReached,
-    bool UtteranceEnded);
+    bool UtteranceEnded,
+    bool CutForced = false);
+
+/// <summary>
+/// How a segmenting session breaks up long stretches of speech, so text keeps appearing while
+/// somebody talks without stopping. Thai speakers pause for 0.3–0.8 s between phrases, well
+/// under the hangover that ends a sentence, so without this nothing is cut until the key is
+/// released.
+/// </summary>
+/// <param name="SoftCutAfterMs">Once an utterance is this long, a short pause is enough to end it.</param>
+/// <param name="SoftPauseMs">The short pause that ends a long utterance.</param>
+/// <param name="MaxUtteranceMs">Past this, the utterance is cut at its quietest recent moment.</param>
+public sealed record SegmentPacing(int SoftCutAfterMs, int SoftPauseMs, int MaxUtteranceMs)
+{
+    public const int DefaultSoftPauseMs = 420;
+
+    /// <summary>The pacing for a user-facing "send at least every N seconds" setting.</summary>
+    public static SegmentPacing ForMaxSeconds(int maxSeconds)
+    {
+        int max = Math.Clamp(maxSeconds, 5, 30) * 1000;
+        int soft = Math.Max(2500, max * 2 / 5);
+        return new SegmentPacing(soft, DefaultSoftPauseMs, max);
+    }
+}
 
 /// <summary>
 /// Adaptive RMS voice-activity detector. Pure arithmetic over PCM bytes with no audio APIs,
@@ -52,6 +79,14 @@ public sealed class VadMonitor
     private const double RiseAlpha = 0.02;
     private const double SpeechAlpha = 0.0005;
 
+    /// <summary>How far back a forced cut looks for a quiet moment: 1.2 s.</summary>
+    private const int CutSearchFrames = 40;
+
+    /// <summary>A forced cut never leaves a piece shorter than this: 1 s.</summary>
+    private const int MinFramesBeforeCut = 33;
+
+    private const int RmsHistoryFrames = 64;
+
     private readonly double _enterDbfs;
     private readonly double _exitOffsetDb;
     private readonly bool _adaptive;
@@ -68,7 +103,17 @@ public sealed class VadMonitor
     private double _noiseFloorDbfs = SeedNoiseFloorDbfs;
     private double _peakDbfs = MinDbfs;
 
-    public VadMonitor(VadSettings settings, int sampleRate = 16000)
+    private readonly bool _paced;
+    private readonly int _softAfterFrames;
+    private readonly int _softPauseFrames;
+    private readonly int _maxFrames;
+    private readonly double[] _rmsHistory = new double[RmsHistoryFrames];
+    private long _utteranceStartFrame = -1;
+    private bool _cutForced;
+    private long _pendingCutOffset = -1;
+    private long _pendingCutFrame = -1;
+
+    public VadMonitor(VadSettings settings, int sampleRate = 16000, SegmentPacing? pacing = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
@@ -82,6 +127,14 @@ public sealed class VadMonitor
         int rate = Math.Clamp(sampleRate, 8000, 48000);
         _frameBytes = rate / 1000 * FrameMs * WavUtil.BlockAlign;
         _partialFrame = new byte[_frameBytes];
+
+        if (pacing is not null)
+        {
+            _paced = true;
+            _maxFrames = Math.Max(MinFramesBeforeCut + CutSearchFrames, pacing.MaxUtteranceMs / FrameMs);
+            _softAfterFrames = Math.Clamp(pacing.SoftCutAfterMs / FrameMs, 1, _maxFrames);
+            _softPauseFrames = Math.Clamp((pacing.SoftPauseMs + FrameMs - 1) / FrameMs, 1, _hangoverFrames);
+        }
     }
 
     /// <summary>Latches once an utterance has been confirmed; the caller skips the API when it is false.</summary>
@@ -117,6 +170,7 @@ public sealed class VadMonitor
     public VadFrameResult Process(ReadOnlySpan<byte> pcm16)
     {
         _utteranceEnded = false;
+        _cutForced = false;
 
         int consumed = 0;
         while (consumed < pcm16.Length)
@@ -138,7 +192,8 @@ public sealed class VadMonitor
             _peakDbfs,
             _inSpeech,
             SilenceTimeoutReached,
-            _utteranceEnded);
+            _utteranceEnded,
+            _cutForced);
     }
 
     /// <summary>
@@ -148,6 +203,21 @@ public sealed class VadMonitor
     /// </summary>
     public void BeginUtterance()
     {
+        if (_pendingCutOffset >= 0)
+        {
+            // A forced cut lands mid-speech: the next utterance starts exactly at the cut and
+            // the speaker is still talking, so nothing else is reset.
+            UtteranceStartByteOffset = _pendingCutOffset;
+            UtteranceEndByteOffset = Math.Max(LastSpeechByteOffset, _pendingCutOffset);
+            _utteranceStartFrame = _pendingCutFrame;
+            _pendingCutOffset = -1;
+            _pendingCutFrame = -1;
+            _utteranceEnded = false;
+            _cutForced = false;
+            return;
+        }
+
+        _utteranceStartFrame = -1;
         _aboveEnterFrames = 0;
         _silenceFrames = 0;
         _inSpeech = false;
@@ -173,17 +243,24 @@ public sealed class VadMonitor
         LastSpeechByteOffset = -1;
         UtteranceStartByteOffset = -1;
         UtteranceEndByteOffset = -1;
+        _utteranceStartFrame = -1;
+        _cutForced = false;
+        _pendingCutOffset = -1;
+        _pendingCutFrame = -1;
+        Array.Clear(_rmsHistory);
     }
 
     private void ProcessFrame(ReadOnlySpan<byte> frame)
     {
-        long frameStart = _framesProcessed * _frameBytes;
+        long frameIndex = _framesProcessed;
+        long frameStart = frameIndex * _frameBytes;
         _framesProcessed++;
 
         ReadOnlySpan<short> samples = MemoryMarshal.Cast<byte, short>(frame);
         Measure(samples, out double rmsDbfs, out double peakDbfs);
         CurrentRmsDbfs = rmsDbfs;
         _peakDbfs = peakDbfs;
+        _rmsHistory[frameIndex % RmsHistoryFrames] = rmsDbfs;
 
         UpdateNoiseFloor(rmsDbfs);
 
@@ -206,6 +283,7 @@ public sealed class VadMonitor
                 if (UtteranceStartByteOffset < 0)
                 {
                     UtteranceStartByteOffset = onset;
+                    _utteranceStartFrame = Math.Max(0, frameIndex - (SpeechDebounceFrames - 1));
                 }
             }
         }
@@ -219,22 +297,84 @@ public sealed class VadMonitor
             return;
         }
 
+        // A forced cut waits for the caller to take it; until then the end it reported must not move.
+        bool cutPending = _pendingCutOffset >= 0;
+
         if (rmsDbfs >= exit)
         {
             _silenceFrames = 0;
             LastSpeechByteOffset = frameStart + _frameBytes;
-            UtteranceEndByteOffset = LastSpeechByteOffset;
+            if (!cutPending)
+            {
+                UtteranceEndByteOffset = LastSpeechByteOffset;
+                TryForceCut(frameIndex);
+            }
+
             return;
         }
 
         _silenceFrames++;
-        if (_silenceFrames >= _hangoverFrames)
+        if (cutPending)
+        {
+            return;
+        }
+
+        // The longer somebody has talked without a real pause, the shorter the pause that ends it.
+        bool longUtterance = _paced
+            && _utteranceStartFrame >= 0
+            && frameIndex + 1 - _utteranceStartFrame >= _softAfterFrames;
+        int needed = longUtterance ? _softPauseFrames : _hangoverFrames;
+
+        if (_silenceFrames >= needed)
         {
             _inSpeech = false;
             _silenceFrames = 0;
-            SilenceTimeoutReached = true;
             _utteranceEnded = true;
+
+            // Only the full hangover means the speaker stopped; a short pause ends a sentence, not a session.
+            if (needed == _hangoverFrames)
+            {
+                SilenceTimeoutReached = true;
+            }
+
+            return;
         }
+
+        TryForceCut(frameIndex);
+    }
+
+    /// <summary>
+    /// Ends an utterance that has run past the maximum without a pause, at the quietest frame of
+    /// the last 1.2 s — most likely the gap between two words — so no word is cut in half.
+    /// </summary>
+    private void TryForceCut(long frameIndex)
+    {
+        if (!_paced || _utteranceStartFrame < 0 || frameIndex + 1 - _utteranceStartFrame < _maxFrames)
+        {
+            return;
+        }
+
+        long earliest = Math.Max(_utteranceStartFrame + MinFramesBeforeCut, frameIndex - CutSearchFrames + 1);
+        long quietest = frameIndex;
+        double quietestRms = double.MaxValue;
+        for (long f = earliest; f <= frameIndex; f++)
+        {
+            double rms = _rmsHistory[f % RmsHistoryFrames];
+            if (rms <= quietestRms)
+            {
+                quietestRms = rms;
+                quietest = f;
+            }
+        }
+
+        long cut = (quietest * _frameBytes) + (_frameBytes / 2);
+        cut -= cut % WavUtil.BlockAlign;
+
+        UtteranceEndByteOffset = cut;
+        _pendingCutOffset = cut;
+        _pendingCutFrame = quietest;
+        _utteranceEnded = true;
+        _cutForced = true;
     }
 
     private void UpdateNoiseFloor(double rmsDbfs)
